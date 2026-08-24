@@ -114,6 +114,8 @@ data class TranslatorUiState(
     val liveTranscript: String = "",
     /** The rolling chat feed of the live conversation, oldest first. */
     val liveMessages: List<LiveChatEntry> = emptyList(),
+    /** When true, the continuous foreign listening in live mode is paused. */
+    val isLiveListeningPaused: Boolean = false,
 ) {
     val statusText: String
         get() = status.statusText

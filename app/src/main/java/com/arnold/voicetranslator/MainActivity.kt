@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
                     onToggleLiveConversation = viewModel::onToggleLiveConversation,
                     onLiveSpeakSpanish = viewModel::onLiveSpeakSpanish,
                     onLiveSuggestionTapped = viewModel::onLiveSuggestionTapped,
+                    onToggleLiveListeningPause = viewModel::onToggleLiveListeningPause,
                 )
             }
         }
@@ -185,6 +186,7 @@ private fun TranslatorScreen(
     onToggleLiveConversation: () -> Unit,
     onLiveSpeakSpanish: () -> Unit,
     onLiveSuggestionTapped: (String) -> Unit,
+    onToggleLiveListeningPause: () -> Unit,
 ) {
     var permissionRequestStarted by remember { mutableStateOf(false) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -247,6 +249,7 @@ private fun TranslatorScreen(
                     state = state,
                     onLiveSpeakSpanish = onLiveSpeakSpanish,
                     onLiveSuggestionTapped = onLiveSuggestionTapped,
+                    onToggleLiveListeningPause = onToggleLiveListeningPause,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -1282,6 +1285,7 @@ private fun LiveConversationView(
     state: TranslatorUiState,
     onLiveSpeakSpanish: () -> Unit,
     onLiveSuggestionTapped: (String) -> Unit,
+    onToggleLiveListeningPause: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -1292,10 +1296,11 @@ private fun LiveConversationView(
         }
 
         // Turn indicator
-        val turnText = when (state.liveTurn) {
-            LiveTurn.YOU -> "Estás hablando…"
-            LiveTurn.THEM -> "Escuchando $foreignLabel…"
-            null -> "Conversación en vivo"
+        val turnText = when {
+            state.isLiveListeningPaused -> "Escucha de $foreignLabel en pausa"
+            state.liveTurn == LiveTurn.YOU -> "Estás hablando…"
+            state.liveTurn == LiveTurn.THEM -> "Escuchando $foreignLabel…"
+            else -> "Conversación en vivo"
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1306,10 +1311,10 @@ private fun LiveConversationView(
                     .size(10.dp)
                     .clip(CircleShape)
                     .background(
-                        if (state.liveTurn == LiveTurn.THEM) {
-                            Color(0xFFFFC107)
-                        } else {
-                            MaterialTheme.colorScheme.primary
+                        when {
+                            state.isLiveListeningPaused -> MaterialTheme.colorScheme.onSurfaceVariant
+                            state.liveTurn == LiveTurn.THEM -> Color(0xFFFFC107)
+                            else -> MaterialTheme.colorScheme.primary
                         },
                     ),
             )
@@ -1318,7 +1323,26 @@ private fun LiveConversationView(
                 turnText,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
             )
+            // Pause/resume the continuous foreign listening.
+            FilledTonalButton(
+                onClick = onToggleLiveListeningPause,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (state.isLiveListeningPaused) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    },
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    if (state.isLiveListeningPaused) "Reanudar" else "Pausar",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
 
         // Live transcript while listening/speaking

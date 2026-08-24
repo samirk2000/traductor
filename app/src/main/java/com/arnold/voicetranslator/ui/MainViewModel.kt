@@ -80,7 +80,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // application's main thread or it throws a RuntimeException.
             viewModelScope.launch {
                 if (_uiState.value.isLiveConversation &&
-                    _uiState.value.liveTurn == LiveTurn.YOU
+                    _uiState.value.liveTurn == LiveTurn.YOU &&
+                    !_uiState.value.isLiveListeningPaused
                 ) {
                     startLiveForeignTurn()
                 }
@@ -118,10 +119,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             } else {
+                val isForeignSpeech = _uiState.value.isListeningForeign
+                // Keep the microphone continuously open in live mode: immediately
+                // restart foreign listening on the main thread as soon as a foreign
+                // phrase is captured, so the mic never closes and the conversation
+                // flows even if the speaker keeps talking while we translate.
+                // (onResult runs on a binder thread, so hop to the main thread for
+                // SpeechRecognizer.start().)
+                if (_uiState.value.isLiveConversation &&
+                    isForeignSpeech &&
+                    !_uiState.value.isLiveListeningPaused
+                ) {
+                    viewModelScope.launch { startListeningForeignLanguage() }
+                }
                 translateAndGetOptions(
                     text = text,
                     targetLang = _uiState.value.targetLanguage,
-                    isForeignSpeech = _uiState.value.isListeningForeign,
+                    isForeignSpeech = isForeignSpeech,
                 )
             }
         }
@@ -134,6 +148,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     errorMessage = message,
                     liveTranscript = "",
                 )
+            }
+            // In live mode, transient silence (no speech / speech timeout) while
+            // waiting for the foreign speaker should keep the mic open so the
+            // conversation stays continuous. Restart listening on the main thread.
+            val isSilence = message.contains("No se detectó habla") ||
+                message.contains("Tiempo de escucha agotado")
+            if (_uiState.value.isLiveConversation &&
+                !_uiState.value.isLiveListeningPaused &&
+                _uiState.value.liveTurn == LiveTurn.THEM &&
+                isSilence
+            ) {
+                viewModelScope.launch { startListeningForeignLanguage() }
             }
         }
 
@@ -169,6 +195,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isLiveConversation = false,
                 liveTurn = null,
                 liveMessages = emptyList(),
+                isLiveListeningPaused = false,
             )
         }
         applyTargetLanguage(target)
@@ -377,6 +404,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isLiveConversation = false,
                     liveTurn = null,
                     liveTranscript = "",
+                    isLiveListeningPaused = false,
                 )
             }
         } else {
@@ -386,6 +414,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isLiveConversation = true,
                     liveTurn = null,
                     liveTranscript = "",
+                    isLiveListeningPaused = false,
                 )
             }
             startLiveForeignTurn()
@@ -409,6 +438,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = PipelineStatus.Speaking,
                 liveTurn = LiveTurn.YOU,
                 isListening = false,
+                // Clear the previous ELLOS suggestions so they don't linger on
+                // screen after the user has already replied.
+                result = null,
                 liveTranscript = "",
                 liveMessages = it.liveMessages + LiveChatEntry(
                     turn = LiveTurn.YOU,
@@ -444,11 +476,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startSpeakingSpanish()
     }
 
+    /**
+     * Pauses/resumes the continuous foreign listening in live mode. When paused,
+     * the app stops listening for the foreign speaker (so it won't pick up
+     * random sounds or alternate turns by itself) and only captures when the
+     * user resumes. Resuming immediately re-starts listening for the foreign
+     * speaker, so their next words are picked up automatically.
+     */
+    fun onToggleLiveListeningPause() {
+        val state = _uiState.value
+        if (!state.isLiveConversation || !state.hasMicPermission) return
+        if (state.isLiveListeningPaused) {
+            // Resume listening.
+            _uiState.update { it.copy(isLiveListeningPaused = false, liveTranscript = "") }
+            startLiveForeignTurn()
+        } else {
+            // Pause listening.
+            speechManager.cancel()
+            _uiState.update {
+                it.copy(
+                    isLiveListeningPaused = true,
+                    isListening = false,
+                    liveTurn = LiveTurn.THEM,
+                    liveTranscript = "",
+                )
+            }
+        }
+    }
+
     /** Begins a foreign (ELLOS) listening turn within the live conversation. */
     private fun startLiveForeignTurn() {
         _uiState.update {
             it.copy(
                 liveTurn = LiveTurn.THEM,
+                // Clear stale suggestion cards while listening for the next
+                // foreign phrase, so old replies don't linger after a response.
+                result = null,
                 liveTranscript = "",
                 errorMessage = null,
             )
@@ -638,14 +701,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // the foreign language; foreign (ELLOS) turns are never spoken here.
             if (!isForeignSpeech && state.isAutoSpeakEnabled) {
                 speakInForeign(result.mainTranslation)
-            }
-            // Continuous live mode: after capturing a foreign phrase, immediately
-            // keep listening for the next thing the foreign speaker says, so the
-            // conversation flows without requiring the user to tap anything.
-            // The user can interrupt at any time by speaking Spanish or tapping a
-            // suggestion. (onTranslationReady runs on the main thread, so this is safe.)
-            if (isForeignSpeech && !speechManager.isListening) {
-                startLiveForeignTurn()
             }
             return
         }
