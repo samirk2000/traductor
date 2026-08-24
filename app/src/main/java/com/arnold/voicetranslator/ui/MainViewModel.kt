@@ -340,6 +340,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         when (target) {
             TargetLanguage.JAPANESE -> speechManager.listenInJapanese()
             TargetLanguage.KOREAN -> speechManager.listenInKorean()
+            TargetLanguage.ENGLISH -> speechManager.listenInEnglish()
         }
         beginListening(isForeignSpeech = true)
     }
@@ -586,6 +587,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun localeFor(target: TargetLanguage): Locale = when (target) {
         TargetLanguage.JAPANESE -> Locale.JAPAN
         TargetLanguage.KOREAN -> Locale.KOREA
+        TargetLanguage.ENGLISH -> Locale.ENGLISH
     }
 
     override fun onCleared() {

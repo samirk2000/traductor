@@ -1,10 +1,12 @@
 package com.arnold.voicetranslator.data.model
 
 /**
- * Represents the two supported translation target languages.
+ * Represents the supported translation target languages.
  *
- * - [JAPANESE]: The user speaks Spanish, the output is Romaji (Romanized Japanese).
- * - [KOREAN]: The user speaks Spanish, the output is Spanish-phonetic pronunciation of Korean.
+ * - [JAPANESE]: The user speaks Spanish/English, the output is Romaji.
+ * - [KOREAN]: The user speaks Spanish/English, the output is Spanish/English
+ *   phonetics of Korean.
+ * - [ENGLISH]: The user speaks Spanish, the output is English.
  */
 enum class TargetLanguage(
     val id: String,
@@ -28,5 +30,12 @@ enum class TargetLanguage(
         flagEmoji = "🇰🇷",
         mlKitModelTag = "ko",
         localeTag = "ko",
+    ),
+    ENGLISH(
+        id = "en",
+        displayName = "Inglés",
+        flagEmoji = "🇺🇸",
+        mlKitModelTag = "en",
+        localeTag = "en",
     ),
 }

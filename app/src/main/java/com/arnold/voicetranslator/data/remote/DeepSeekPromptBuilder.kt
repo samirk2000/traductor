@@ -14,11 +14,13 @@ object DeepSeekPromptBuilder {
         val systemPrompt = when (target) {
             TargetLanguage.JAPANESE -> SYSTEM_JAPANESE
             TargetLanguage.KOREAN -> SYSTEM_KOREAN
+            TargetLanguage.ENGLISH -> SYSTEM_ENGLISH
         }
         val userPrompt = "Traduce al ${
             when (target) {
                 TargetLanguage.JAPANESE -> "japonés romaji"
                 TargetLanguage.KOREAN -> "coreano fonético en español"
+                TargetLanguage.ENGLISH -> "inglés"
             }
         }: $spanishText"
 
@@ -30,9 +32,9 @@ object DeepSeekPromptBuilder {
 
     /**
      * Builds the messages for the Two-Way Conversation mode, where the user is
-     * listening to the active foreign speaker's language (Japanese or Korean,
-     * per [foreignLang]) and needs a Mexican Spanish translation plus short
-     * transliterated reply suggestions to answer back.
+     * listening to the active foreign speaker's language (Japanese, Korean, or
+     * English, per [foreignLang]) and needs a Mexican Spanish translation plus
+     * short reply suggestions to answer back.
      */
     fun buildConversationMessages(
         inputText: String,
@@ -41,10 +43,12 @@ object DeepSeekPromptBuilder {
         val systemPrompt = when (foreignLang) {
             TargetLanguage.JAPANESE -> SYSTEM_JAPANESE_INPUT
             TargetLanguage.KOREAN -> SYSTEM_KOREAN_INPUT
+            TargetLanguage.ENGLISH -> SYSTEM_ENGLISH_INPUT
         }
         val languageLabel = when (foreignLang) {
             TargetLanguage.JAPANESE -> "japonés"
             TargetLanguage.KOREAN -> "coreano"
+            TargetLanguage.ENGLISH -> "inglés"
         }
         val userPrompt =
             "Diálogo: " +
@@ -76,6 +80,14 @@ object DeepSeekPromptBuilder {
             "nada de definiciones, nada de explicaciones gramaticales. " +
             "Alternatives debe tener entre 1 y 3 pronunciaciones alternativas naturales."
 
+    private const val SYSTEM_ENGLISH =
+        "You are an expert, natural Spanish-to-English translator for a Mexican traveler. " +
+            "Translate the input Spanish (which may contain Mexican slang/idioms) into natural, " +
+            "casual, everyday US English, capturing the speaker's intent, tone, and friendliness. " +
+            "Return JSON ONLY with format: " +
+            "{\"mainTranslation\": \"Most natural English translation\", \"alternatives\": [\"Alternative English 1\", \"Alternative English 2\"]}. " +
+            "Do not output explanations, quotes, or extra text."
+
     private const val SYSTEM_JAPANESE_INPUT =
         "You are an expert real-time interpreter for a Mexican traveler listening to a native Japanese speaker. " +
             "Translate the input Japanese (spoken or Romaji) into natural Mexican Spanish, capturing the exact intent, " +
@@ -104,6 +116,20 @@ object DeepSeekPromptBuilder {
             "{\"mainTranslation\": \"Traducción natural al español mexicano\", " +
             "\"replySuggestions\": [{\"romaji\": \"Respuesta fonética 1\", \"spanish\": \"Significado 1\", \"kana\": \"네, 알겠어요\"}, " +
             "{\"romaji\": \"Respuesta fonética 2\", \"spanish\": \"Significado 2\", \"kana\": \"고마워요\"}]}. " +
+            "Do not output explanations, quotes, or extra text."
+
+    private const val SYSTEM_ENGLISH_INPUT =
+        "You are an expert real-time interpreter for a Mexican traveler listening to a native English speaker. " +
+            "Translate the input English into natural Mexican Spanish, capturing the exact intent, tone, and politeness level. " +
+            "Also generate 2 short, natural, highly appropriate response suggestions the traveler can reply with. " +
+            "Each suggestion must be an object with THREE fields: " +
+            "\"romaji\" (the reply written in English as the traveler will say it), " +
+            "\"spanish\" (its short meaning in Spanish), " +
+            "and \"kana\" (the SAME reply written in plain English, repeated, so it can be read back; may equal romaji). " +
+            "Return JSON ONLY with format: " +
+            "{\"mainTranslation\": \"Traducción natural al español mexicano\", " +
+            "\"replySuggestions\": [{\"romaji\": \"Sure, sounds good\", \"spanish\": \"Claro, suena bien\", \"kana\": \"Sure, sounds good\"}, " +
+            "{\"romaji\": \"I don't understand\", \"spanish\": \"No entiendo\", \"kana\": \"I don't understand\"}]}. " +
             "Do not output explanations, quotes, or extra text."
 
     private const val SYSTEM_SPANISH_INPUT =

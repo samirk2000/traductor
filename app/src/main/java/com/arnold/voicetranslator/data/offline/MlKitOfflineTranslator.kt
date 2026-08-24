@@ -33,6 +33,7 @@ class MlKitOfflineTranslator {
         val targetCode = when (target) {
             TargetLanguage.JAPANESE -> TranslateLanguage.JAPANESE
             TargetLanguage.KOREAN -> TranslateLanguage.KOREAN
+            TargetLanguage.ENGLISH -> TranslateLanguage.ENGLISH
         }
         val options = TranslatorOptions.Builder()
             .setSourceLanguage(TranslateLanguage.SPANISH)
@@ -46,6 +47,7 @@ class MlKitOfflineTranslator {
         val languageCode = when (target) {
             TargetLanguage.JAPANESE -> TranslateLanguage.JAPANESE
             TargetLanguage.KOREAN -> TranslateLanguage.KOREAN
+            TargetLanguage.ENGLISH -> TranslateLanguage.ENGLISH
         }
         return TranslateRemoteModel.Builder(languageCode).build()
     }
@@ -142,8 +144,11 @@ class MlKitOfflineTranslator {
         // output the user is used to; Korean has no cheap romanizer, so it stays
         // as Hangul and is still readable by the traveler's counterpart.
         val mainTranslation = when (target) {
+            // ML Kit returns the native script. Romanize Japanese so offline
+            // output matches the online Romaji view; Korean/English are already
+            // usable as-is.
             TargetLanguage.JAPANESE -> KanaRomaji.toRomajiIfKana(result).ifBlank { result }
-            TargetLanguage.KOREAN -> result
+            else -> result
         }
 
         return TranslationResult(

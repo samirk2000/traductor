@@ -45,7 +45,8 @@ class SpeechRecognitionManager(private val context: Context) {
     /** True while the recognizer is listening in a foreign (non-Spanish) locale. */
     private val isForeignLanguage: Boolean
         get() = speechLanguage.equals(JAPANESE_SPEECH_LANGUAGE, ignoreCase = true) ||
-            speechLanguage.equals(KOREAN_SPEECH_LANGUAGE, ignoreCase = true)
+            speechLanguage.equals(KOREAN_SPEECH_LANGUAGE, ignoreCase = true) ||
+            speechLanguage.equals(ENGLISH_SPEECH_LANGUAGE, ignoreCase = true)
 
     /** True while the recognizer is actively listening for speech. */
     val isListening: Boolean get() = recognizer != null
@@ -81,6 +82,11 @@ class SpeechRecognitionManager(private val context: Context) {
     /** Configures the recognizer to listen for Korean. */
     fun listenInKorean() {
         speechLanguage = KOREAN_SPEECH_LANGUAGE
+    }
+
+    /** Configures the recognizer to listen for English. */
+    fun listenInEnglish() {
+        speechLanguage = ENGLISH_SPEECH_LANGUAGE
     }
 
     /** Stops listening. The recognizer finalizes and delivers via onResult. */
@@ -231,6 +237,7 @@ class SpeechRecognitionManager(private val context: Context) {
         const val DEFAULT_SPEECH_LANGUAGE = "es-MX"
         const val JAPANESE_SPEECH_LANGUAGE = "ja-JP"
         const val KOREAN_SPEECH_LANGUAGE = "ko-KR"
+        const val ENGLISH_SPEECH_LANGUAGE = "en-US"
         const val RETRY_DELAY_MILLIS = 600L
     }
 }

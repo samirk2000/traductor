@@ -405,22 +405,26 @@ private fun HeaderBar(
                         },
                         onClick = { menuOpen = false },
                     )
-                    DropdownMenuItem(
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    if (selected == TargetLanguage.KOREAN) "Mostrar coreano (hangul)"
-                                    else "Mostrar japonés (kana)",
-                                    Modifier.weight(1f),
-                                )
-                                Switch(
-                                    checked = showKana,
-                                    onCheckedChange = onToggleShowKana,
-                                )
-                            }
-                        },
-                        onClick = { menuOpen = false },
-                    )
+                    if (selected != TargetLanguage.ENGLISH) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        when (selected) {
+                                            TargetLanguage.KOREAN -> "Mostrar coreano (hangul)"
+                                            else -> "Mostrar japonés (kana)"
+                                        },
+                                        Modifier.weight(1f),
+                                    )
+                                    Switch(
+                                        checked = showKana,
+                                        onCheckedChange = onToggleShowKana,
+                                    )
+                                }
+                            },
+                            onClick = { menuOpen = false },
+                        )
+                    }
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -871,13 +875,26 @@ private fun ConversationMicRow(
     var showForeignDialog by remember { mutableStateOf(false) }
     var typedText by remember { mutableStateOf("") }
 
-    val isKorean = targetLanguage == TargetLanguage.KOREAN
-    val listenLabel = if (isKorean) "Escuchar Coreano" else "Escuchar Japonés"
-    val foreignLangName = if (isKorean) "coreano" else "japonés"
-    val foreignHeading = if (isKorean) "Escribir en coreano" else "Escribir en japonés"
-    val foreignHint =
-        if (isKorean) "El reconocimiento de voz a veces falla. Escribe la frase en coreano (한글) o en fonética."
-        else "El reconocimiento de voz a veces falla. Escribe la frase, sea en japonés (かな/漢字) o en romaji."
+    val listenLabel = when (targetLanguage) {
+        TargetLanguage.KOREAN -> "Escuchar Coreano"
+        TargetLanguage.ENGLISH -> "Escuchar Inglés"
+        TargetLanguage.JAPANESE -> "Escuchar Japonés"
+    }
+    val foreignLangName = when (targetLanguage) {
+        TargetLanguage.KOREAN -> "coreano"
+        TargetLanguage.ENGLISH -> "inglés"
+        TargetLanguage.JAPANESE -> "japonés"
+    }
+    val foreignHeading = when (targetLanguage) {
+        TargetLanguage.KOREAN -> "Escribir en coreano"
+        TargetLanguage.ENGLISH -> "Escribir en inglés"
+        TargetLanguage.JAPANESE -> "Escribir en japonés"
+    }
+    val foreignHint = when (targetLanguage) {
+        TargetLanguage.KOREAN -> "El reconocimiento de voz a veces falla. Escribe la frase en coreano (한글) o en fonética."
+        TargetLanguage.ENGLISH -> "El reconocimiento de voz a veces falla. Escribe la frase en inglés."
+        TargetLanguage.JAPANESE -> "El reconocimiento de voz a veces falla. Escribe la frase, sea en japonés (かな/漢字) o en romaji."
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(

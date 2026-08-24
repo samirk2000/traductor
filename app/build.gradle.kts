@@ -9,9 +9,31 @@ android {
     namespace = "com.arnold.voicetranslator"
     compileSdk = 35
 
-    // DeepSeek API key. Provide it either via a `deepseek.apiKey` property in
-    // gradle.properties / local.properties, or fall back to a placeholder.
-    val deepSeekApiKey: String = (project.findProperty("deepseek.apiKey") as? String) ?: ""
+    // DeepSeek API key. Read from local.properties (root, git-ignored) first so
+    // the secret never has to live in a committed file; gradle.properties (via
+    // findProperty) is kept as a secondary fallback.
+    val deepSeekApiKey: String = run {
+        var fromLocal: String? = null
+        val localProps = rootProject.file("local.properties")
+        if (localProps.isFile) {
+            try {
+                val lines = localProps.readLines()
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("deepseek.apiKey=")) {
+                        val v = trimmed.substringAfter('=').trim()
+                        if (v.isNotEmpty()) fromLocal = v
+                        break
+                    }
+                }
+            } catch (_: Exception) {
+                fromLocal = null
+            }
+        }
+        fromLocal
+            ?: ((project.findProperty("deepseek.apiKey") as? String)?.takeIf { it.isNotBlank() })
+            ?: ""
+    }
 
     defaultConfig {
         applicationId = "com.arnold.voicetranslator"
