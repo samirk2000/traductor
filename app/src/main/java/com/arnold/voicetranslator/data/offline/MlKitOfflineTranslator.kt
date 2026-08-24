@@ -2,6 +2,7 @@ package com.arnold.voicetranslator.data.offline
 
 import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.data.model.TranslationResult
+import com.arnold.voicetranslator.util.KanaRomaji
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -136,8 +137,17 @@ class MlKitOfflineTranslator {
             runCatching { translator.close() }
         }
 
+        // ML Kit returns the native script (kana/kanji for Japanese, Hangul
+        // for Korean). For Japanese we romanize so it matches the online Romaji
+        // output the user is used to; Korean has no cheap romanizer, so it stays
+        // as Hangul and is still readable by the traveler's counterpart.
+        val mainTranslation = when (target) {
+            TargetLanguage.JAPANESE -> KanaRomaji.toRomajiIfKana(result).ifBlank { result }
+            TargetLanguage.KOREAN -> result
+        }
+
         return TranslationResult(
-            mainTranslation = result.ifBlank { text },
+            mainTranslation = mainTranslation.ifBlank { text },
             alternatives = emptyList(),
         )
     }

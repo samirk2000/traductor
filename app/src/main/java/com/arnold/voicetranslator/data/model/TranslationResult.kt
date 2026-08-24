@@ -24,12 +24,15 @@ data class TranslationResult(
 /**
  * A suggested reply shown in "Escuchar Japonés" mode: the [romaji] phrase is
  * displayed on top and its [spanish] meaning below, so the traveler can see
- * exactly what they would say before tapping to have it read aloud.
+ * exactly what they would say before tapping to have it read aloud. [kana]
+ * holds the same reply written in Japanese kana/kanji, used when the local
+ * speaker wants to read it (shown optionally via a UI toggle).
  */
 @Serializable
 data class ReplySuggestion(
     @SerialName("romaji") val romaji: String,
     @SerialName("spanish") val spanish: String = "",
+    @SerialName("kana") val kana: String = "",
 )
 
 /**

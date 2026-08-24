@@ -14,6 +14,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -115,6 +117,8 @@ class MainActivity : ComponentActivity() {
                     onClearHistory = viewModel::onClearHistory,
                     onToggleAutoSpeak = viewModel::onToggleAutoSpeak,
                     onTranslateSpanishText = viewModel::onTranslateSpanishText,
+                    onToggleShowKana = viewModel::onToggleShowKana,
+                    onTranslateJapaneseText = viewModel::onTranslateJapaneseText,
                 )
             }
         }
@@ -171,6 +175,8 @@ private fun TranslatorScreen(
     onClearHistory: () -> Unit,
     onToggleAutoSpeak: (Boolean) -> Unit,
     onTranslateSpanishText: (String) -> Unit,
+    onToggleShowKana: (Boolean) -> Unit,
+    onTranslateJapaneseText: (String) -> Unit,
 ) {
     var permissionRequestStarted by remember { mutableStateOf(false) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -189,8 +195,8 @@ private fun TranslatorScreen(
         }
     }
 
-    val listeningSpanish = state.isListening && !state.isListeningToJapanese
-    val listeningJapanese = state.isListening && state.isListeningToJapanese
+    val listeningSpanish = state.isListening && !state.isListeningForeign
+    val listeningForeign = state.isListening && state.isListeningForeign
 
     Box(
         modifier = Modifier
@@ -214,11 +220,13 @@ private fun TranslatorScreen(
                 subtitlesActive = state.isSubtitlesMode,
                 hasHistory = state.historyList.isNotEmpty(),
                 autoSpeakEnabled = state.isAutoSpeakEnabled,
+                showKana = state.isShowKana,
                 onToggleOffline = onToggleOffline,
                 onDownloadModel = onDownloadModel,
                 onToggleSubtitles = onToggleSubtitles,
                 onClearHistory = onClearHistory,
                 onToggleAutoSpeak = onToggleAutoSpeak,
+                onToggleShowKana = onToggleShowKana,
             )
 
             Spacer(Modifier.size(16.dp))
@@ -252,10 +260,12 @@ private fun TranslatorScreen(
                 enabled = state.hasMicPermission,
                 isBusy = state.isTranslating || state.isSpeaking,
                 listeningSpanish = listeningSpanish,
-                listeningJapanese = listeningJapanese,
+                listeningForeign = listeningForeign,
+                targetLanguage = state.targetLanguage,
                 onSpeakSpanish = onSpeakSpanish,
                 onListenJapanese = onListenJapanese,
                 onTranslateSpanishText = onTranslateSpanishText,
+                onTranslateJapaneseText = onTranslateJapaneseText,
             )
         }
 
@@ -291,11 +301,13 @@ private fun HeaderBar(
     subtitlesActive: Boolean,
     hasHistory: Boolean,
     autoSpeakEnabled: Boolean,
+    showKana: Boolean,
     onToggleOffline: (Boolean) -> Unit,
     onDownloadModel: () -> Unit,
     onToggleSubtitles: () -> Unit,
     onClearHistory: () -> Unit,
     onToggleAutoSpeak: (Boolean) -> Unit,
+    onToggleShowKana: (Boolean) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -388,6 +400,22 @@ private fun HeaderBar(
                                 Switch(
                                     checked = autoSpeakEnabled,
                                     onCheckedChange = onToggleAutoSpeak,
+                                )
+                            }
+                        },
+                        onClick = { menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (selected == TargetLanguage.KOREAN) "Mostrar coreano (hangul)"
+                                    else "Mostrar japonés (kana)",
+                                    Modifier.weight(1f),
+                                )
+                                Switch(
+                                    checked = showKana,
+                                    onCheckedChange = onToggleShowKana,
                                 )
                             }
                         },
@@ -499,9 +527,12 @@ private fun TranslationDisplay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            // Top so that overflowing content (long replies + cards) is fully
+            // reachable by scrolling; Center would clip the top of long content.
+            verticalArrangement = Arrangement.Top,
         ) {
             when {
                 state.isTranslating && result == null -> {
@@ -525,9 +556,10 @@ private fun TranslationDisplay(
                 }
 
                 else -> {
-                    // When listening to Japanese, echo what the user heard
-                    // (kana + romaji) in gray above the Spanish translation.
-                    if (state.isListeningToJapanese) {
+                    // When listening to the foreign speaker's language, echo
+                    // what the user heard (kana + romaji for Japanese; hangul
+                    // alone for Korean) in gray above the Spanish translation.
+                    if (state.isListeningForeign) {
                         val heardText = state.sourceText
                         val heardRomaji = state.sourceRomaji
                         if (heardText != null) {
@@ -587,11 +619,12 @@ private fun TranslationDisplay(
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    if (state.isListeningToJapanese) {
+                    if (state.isListeningForeign) {
                         val structured = result.replySuggestions
                         if (structured.isNotEmpty()) {
                             ReplySuggestionCards(
                                 suggestions = structured,
+                                showKana = state.isShowKana,
                                 onSuggestionTapped = { romaji -> onSuggestionTapped(romaji) },
                                 enabled = !state.isSpeaking,
                             )
@@ -730,6 +763,7 @@ private fun ResultSuggestions(
 @Composable
 private fun ReplySuggestionCards(
     suggestions: List<ReplySuggestion>,
+    showKana: Boolean,
     onSuggestionTapped: (String) -> Unit,
     enabled: Boolean,
 ) {
@@ -755,25 +789,38 @@ private fun ReplySuggestionCards(
             )
         }
         Spacer(Modifier.size(10.dp))
-        suggestions.forEach { suggestion ->
-            Surface(
-                onClick = { onSuggestionTapped(suggestion.romaji) },
-                enabled = enabled,
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        // No nested verticalScroll here: the surrounding TranslationDisplay panel
+        // is already scrollable and would otherwise crash with infinite-height
+        // constraints. Cards simply stack and the parent scroll handles overflow.
+        Column(modifier = Modifier.fillMaxWidth()) {
+            suggestions.forEach { suggestion ->
+                Surface(
+                    onClick = { onSuggestionTapped(suggestion.romaji) },
+                    enabled = enabled,
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp),
                 ) {
-                    Column(Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        // Japanese kana/kanji first when the toggle is on, so a
+                        // native speaker can read it back.
+                        if (showKana && suggestion.kana.isNotBlank()) {
+                            Text(
+                                text = suggestion.kana,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.size(2.dp))
+                        }
                         Text(
                             text = suggestion.romaji,
                             style = MaterialTheme.typography.titleMedium,
@@ -789,13 +836,6 @@ private fun ReplySuggestionCards(
                             )
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Icon(
-                        imageVector = Icons.Default.ChatBubbleOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(20.dp),
-                    )
                 }
             }
         }
@@ -809,9 +849,10 @@ private fun ReplySuggestionCards(
 /**
  * Pair of mic buttons for the Two-Way Conversation:
  *  - "Hablar en Español"  -> hears Spanish, outputs to the target language.
- *  - "Escuchar Japonés"   -> hears Japanese, outputs Spanish + Romaji replies.
+ *  - "Escuchar <Idioma>"  -> hears the foreign language (Japanese/Korean,
+ *    per [targetLanguage]), outputs Spanish + transliterated reply cards.
  *
- * A small "type it instead" (pen) button next to the Spanish mic opens a dialog
+ * A small "type it instead" (pen) button next to each mic opens a dialog
  * so the user can write the phrase manually when speech recognition mishears it.
  */
 @Composable
@@ -819,13 +860,24 @@ private fun ConversationMicRow(
     enabled: Boolean,
     isBusy: Boolean,
     listeningSpanish: Boolean,
-    listeningJapanese: Boolean,
+    listeningForeign: Boolean,
+    targetLanguage: TargetLanguage,
     onSpeakSpanish: () -> Unit,
     onListenJapanese: () -> Unit,
     onTranslateSpanishText: (String) -> Unit,
+    onTranslateJapaneseText: (String) -> Unit,
 ) {
-    var showTypeDialog by remember { mutableStateOf(false) }
+    var showSpanishDialog by remember { mutableStateOf(false) }
+    var showForeignDialog by remember { mutableStateOf(false) }
     var typedText by remember { mutableStateOf("") }
+
+    val isKorean = targetLanguage == TargetLanguage.KOREAN
+    val listenLabel = if (isKorean) "Escuchar Coreano" else "Escuchar Japonés"
+    val foreignLangName = if (isKorean) "coreano" else "japonés"
+    val foreignHeading = if (isKorean) "Escribir en coreano" else "Escribir en japonés"
+    val foreignHint =
+        if (isKorean) "El reconocimiento de voz a veces falla. Escribe la frase en coreano (한글) o en fonética."
+        else "El reconocimiento de voz a veces falla. Escribe la frase, sea en japonés (かな/漢字) o en romaji."
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -847,7 +899,7 @@ private fun ConversationMicRow(
                     onClick = {
                         if (!isBusy) {
                             typedText = ""
-                            showTypeDialog = true
+                            showSpanishDialog = true
                         }
                     },
                     enabled = enabled && !isBusy,
@@ -858,21 +910,36 @@ private fun ConversationMicRow(
                 }
             }
 
-            ModeMicButton(
-                label = "Escuchar Japonés",
-                listening = listeningJapanese,
-                icon = { Icons.Default.Hearing },
-                color = MaterialTheme.colorScheme.tertiary,
-                enabled = enabled,
-                isBusy = isBusy,
-                modifier = Modifier.weight(1f),
-                onClick = onListenJapanese,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                ModeMicButton(
+                    label = listenLabel,
+                    listening = listeningForeign,
+                    icon = { Icons.Default.Hearing },
+                    color = MaterialTheme.colorScheme.tertiary,
+                    enabled = enabled,
+                    isBusy = isBusy,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    onClick = onListenJapanese,
+                )
+                TextButton(
+                    onClick = {
+                        if (!isBusy) {
+                            typedText = ""
+                            showForeignDialog = true
+                        }
+                    },
+                    enabled = enabled && !isBusy,
+                ) {
+                    Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Escribir", style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
 
-        if (showTypeDialog) {
+        if (showSpanishDialog) {
             AlertDialog(
-                onDismissRequest = { showTypeDialog = false },
+                onDismissRequest = { showSpanishDialog = false },
                 title = { Text("Escribir en español") },
                 text = {
                     Column {
@@ -894,7 +961,7 @@ private fun ConversationMicRow(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            showTypeDialog = false
+                            showSpanishDialog = false
                             onTranslateSpanishText(typedText)
                         },
                     ) {
@@ -902,7 +969,46 @@ private fun ConversationMicRow(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showTypeDialog = false }) {
+                    TextButton(onClick = { showSpanishDialog = false }) {
+                        Text("Cancelar")
+                    }
+                },
+            )
+        }
+
+        if (showForeignDialog) {
+            AlertDialog(
+                onDismissRequest = { showForeignDialog = false },
+                title = { Text(foreignHeading) },
+                text = {
+                    Column {
+                        Text(
+                            foreignHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.size(12.dp))
+                        OutlinedTextField(
+                            value = typedText,
+                            onValueChange = { typedText = it },
+                            label = { Text("Frase en $foreignLangName") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = false,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showForeignDialog = false
+                            onTranslateJapaneseText(typedText)
+                        },
+                    ) {
+                        Text("Traducir")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showForeignDialog = false }) {
                         Text("Cancelar")
                     }
                 },

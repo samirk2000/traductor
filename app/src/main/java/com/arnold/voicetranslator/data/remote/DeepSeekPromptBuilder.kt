@@ -29,22 +29,27 @@ object DeepSeekPromptBuilder {
     }
 
     /**
-     * Builds the messages for the Two-Way Conversation mode.
-     *
-     * When [isJapaneseInput] is true the user is being spoken to in Japanese,
-     * so the assistant must translate into Mexican Spanish (as the main text)
-     * and additionally propose 2-4 short reply suggestions in Romaji that the
-     * local user can tap to answer back in Japanese.
+     * Builds the messages for the Two-Way Conversation mode, where the user is
+     * listening to the active foreign speaker's language (Japanese or Korean,
+     * per [foreignLang]) and needs a Mexican Spanish translation plus short
+     * transliterated reply suggestions to answer back.
      */
-    fun buildConversationMessages(inputText: String, isJapaneseInput: Boolean): List<ChatMessage> {
-        val systemPrompt =
-            if (isJapaneseInput) SYSTEM_JAPANESE_INPUT else SYSTEM_SPANISH_INPUT
-        val directionLabel = if (isJapaneseInput) "japonés" else "español"
-        val dialogueLabel = if (isJapaneseInput) "Español" else "Japonés"
+    fun buildConversationMessages(
+        inputText: String,
+        foreignLang: TargetLanguage,
+    ): List<ChatMessage> {
+        val systemPrompt = when (foreignLang) {
+            TargetLanguage.JAPANESE -> SYSTEM_JAPANESE_INPUT
+            TargetLanguage.KOREAN -> SYSTEM_KOREAN_INPUT
+        }
+        val languageLabel = when (foreignLang) {
+            TargetLanguage.JAPANESE -> "japonés"
+            TargetLanguage.KOREAN -> "coreano"
+        }
         val userPrompt =
-            "Diálogo $dialogueLabel: " +
+            "Diálogo: " +
                 "Traduce y responde siguiendo el sistema. " +
-                "Entrada en $directionLabel: \"$inputText\""
+                "Entrada en $languageLabel: \"$inputText\""
 
         return listOf(
             ChatMessage(role = "system", content = systemPrompt),
@@ -76,13 +81,30 @@ object DeepSeekPromptBuilder {
             "Translate the input Japanese (spoken or Romaji) into natural Mexican Spanish, capturing the exact intent, " +
             "tone, and politeness level. " +
             "Also generate 2 short, natural, highly appropriate response suggestions the traveler can reply with. " +
-            "Each suggestion must be an object with two fields: \"romaji\" (the reply expressed strictly in Romaji, " +
-            "with no Kanji/Kana) and \"spanish\" (its short meaning in Spanish). " +
+            "Each suggestion must be an object with THREE fields: " +
+            "\"romaji\" (the reply expressed strictly in Romaji, no Kanji/Kana), " +
+            "\"spanish\" (its short meaning in Spanish), " +
+            "and \"kana\" (the SAME reply written in proper Japanese kana/kanji so a native speaker can read it). " +
             "Return JSON ONLY with format: " +
             "{\"mainTranslation\": \"Traducción natural al español mexicano\", " +
-            "\"replySuggestions\": [{\"romaji\": \"Respuesta en Romaji 1\", \"spanish\": \"Significado 1\"}, " +
-            "{\"romaji\": \"Respuesta en Romaji 2\", \"spanish\": \"Significado 2\"}]}. " +
-            "Do not output Kanji, Hiragana, Katakana, explanations, or quotes."
+            "\"replySuggestions\": [{\"romaji\": \"Respuesta en Romaji 1\", \"spanish\": \"Significado 1\", \"kana\": \"漢字かなの応答\"}, " +
+            "{\"romaji\": \"Respuesta en Romaji 2\", \"spanish\": \"Significado 2\", \"kana\": \"漢字かなの応答\"}]}. " +
+            "Do not output explanations, quotes, or extra text."
+
+    private const val SYSTEM_KOREAN_INPUT =
+        "You are an expert real-time interpreter for a Mexican traveler listening to a native Korean speaker. " +
+            "Translate the input Korean (spoken or transliterated) into natural Mexican Spanish, capturing the exact " +
+            "intent, tone, and politeness level. " +
+            "Also generate 2 short, natural, highly appropriate response suggestions the traveler can reply with. " +
+            "Each suggestion must be an object with THREE fields: " +
+            "\"romaji\" (the reply written in a Spanish-friendly phonetic transcription, e.g. \"Ne, al-ge-sseo-yo\", no Hangul), " +
+            "\"spanish\" (its short meaning in Spanish), " +
+            "and \"kana\" (the SAME reply written in proper Korean Hangul so a native speaker can read it). " +
+            "Return JSON ONLY with format: " +
+            "{\"mainTranslation\": \"Traducción natural al español mexicano\", " +
+            "\"replySuggestions\": [{\"romaji\": \"Respuesta fonética 1\", \"spanish\": \"Significado 1\", \"kana\": \"네, 알겠어요\"}, " +
+            "{\"romaji\": \"Respuesta fonética 2\", \"spanish\": \"Significado 2\", \"kana\": \"고마워요\"}]}. " +
+            "Do not output explanations, quotes, or extra text."
 
     private const val SYSTEM_SPANISH_INPUT =
         "You are an expert, culturally-aware real-time interpreter for a Mexican traveler in Japan. " +

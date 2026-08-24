@@ -88,17 +88,18 @@ class DeepSeekApiClient {
     }
 
     /**
-     * Two-Way Conversation translation: the input is either Spanish or
-     * (approx) Japanese, and the assistant returns a main translation plus
-     * short reply suggestions in Romaji.
+     * Two-Way Conversation translation: the input is the active foreign
+     * speaker's language (Japanese or Korean, per [foreignLang]) and the
+     * assistant returns a main translation into Mexican Spanish plus short
+     * transliterated reply suggestions.
      *
-     * @param isJapaneseInput true when the recognized speech was Japanese.
+     * @param foreignLang the foreign language the user is listening to.
      */
     suspend fun translateConversation(
         inputText: String,
-        isJapaneseInput: Boolean,
+        foreignLang: TargetLanguage,
     ): TranslationResult {
-        val messages = DeepSeekPromptBuilder.buildConversationMessages(inputText, isJapaneseInput)
+        val messages = DeepSeekPromptBuilder.buildConversationMessages(inputText, foreignLang)
         return requestTranslation(messages)
     }
 

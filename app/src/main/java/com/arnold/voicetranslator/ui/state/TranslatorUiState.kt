@@ -67,6 +67,9 @@ data class TranslatorUiState(
     val isSpeaking: Boolean = false,
     /** True when the active speech mode listens to a Japanese speaker. */
     val isListeningToJapanese: Boolean = false,
+    /** True when the active "listen" mode listens to a foreign language
+     *  (Japanese OR Korean, per [targetLanguage]). */
+    val isListeningForeign: Boolean = false,
     /** Original text(s) that produced [result]; used to echo kana + romaji. */
     val sourceText: String? = null,
     /** Romaji transcription of [sourceText] when it was Japanese kana. */
@@ -81,6 +84,8 @@ data class TranslatorUiState(
     val isSubtitlesMode: Boolean = false,
     /** When true, a finished translation is read aloud automatically (TTS). */
     val isAutoSpeakEnabled: Boolean = true,
+    /** When true, reply suggestions also show the Japanese kana/kanji text. */
+    val isShowKana: Boolean = false,
 ) {
     val statusText: String
         get() = status.statusText

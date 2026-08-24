@@ -94,7 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 translateAndGetOptions(
                     text = text,
                     targetLang = _uiState.value.targetLanguage,
-                    isJapaneseInput = _uiState.value.isListeningToJapanese,
+                    isForeignSpeech = _uiState.value.isListeningForeign,
                 )
             }
         }
@@ -142,7 +142,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Toggles offline mode on/off and refreshes the download state. */
     fun onToggleOfflineMode(offline: Boolean) {
         stopEverything()
-        _uiState.update { it.copy(isOfflineMode = offline) }
+        _uiState.update {
+            it.copy(
+                isOfflineMode = offline,
+                // Clear any previous translation/history: on-device (ML Kit)
+                // results are raw kana/Hangul and would otherwise stay stuck on
+                // screen after switching modes.
+                result = null,
+                historyList = emptyList(),
+            )
+        }
         if (offline) refreshDownloadState()
     }
 
@@ -192,18 +201,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         speechManager.cancel()
         ttsManager.stop()
-        _uiState.update { it.copy(isListeningToJapanese = false) }
+        _uiState.update { it.copy(isListeningToJapanese = false, isListeningForeign = false) }
         translateAndGetOptions(
             text = input.trim(),
             targetLang = _uiState.value.targetLanguage,
-            isJapaneseInput = false,
+            isForeignSpeech = false,
         )
     }
 
     /**
-     * Mic #2 — "Escuchar Japonés": transcribes Japanese speech, translates it
-     * to Mexican Spanish (shown + read aloud), and returns short Romaji reply
-     * suggestions the user can tap to answer back.
+     * Writes the foreign speaker's language manually (Japanese or Korean,
+     * per targetLanguage) instead of relying on the speech recognizer, useful
+     * when the recognizer mishears a question or the user prefers to type.
+     * Routes through the same conversation pipeline.
+     */
+    fun onTranslateJapaneseText(input: String) {
+        if (input.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "Escribe algo para traducir.") }
+            return
+        }
+        speechManager.cancel()
+        ttsManager.stop()
+        val foreign = _uiState.value.targetLanguage == TargetLanguage.JAPANESE || _uiState.value.targetLanguage == TargetLanguage.KOREAN
+        _uiState.update {
+            it.copy(
+                isListeningToJapanese = _uiState.value.targetLanguage == TargetLanguage.JAPANESE,
+                isListeningForeign = foreign,
+            )
+        }
+        translateAndGetOptions(
+            text = input.trim(),
+            targetLang = _uiState.value.targetLanguage,
+            isForeignSpeech = true,
+        )
+    }
+
+    /**
+     * Mic #2 — "Escuchar [Idioma nativo]": transcribes the active foreign
+     * language (Japanese or Korean, per targetLanguage), translates it to
+     * Mexican Spanish (shown + read aloud), and returns short transliterated
+     * reply suggestions the user can tap to answer back.
      */
     fun onListenJapaneseToggle() {
         val state = _uiState.value
@@ -214,7 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (state.isListening) {
             speechManager.stop()
         } else {
-            startListeningJapanese()
+            startListeningForeignLanguage()
         }
     }
 
@@ -231,7 +268,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 errorMessage = null,
             )
         }
-        speakInJapanese(romajiSuggestion)
+        speakInForeign(romajiSuggestion)
     }
 
     /** Downloads (or re-downloads) the model for the active target language. */
@@ -259,6 +296,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Toggles the fullscreen "Anime Subtitles" overlay. */
     fun onToggleSubtitles() {
         _uiState.update { it.copy(isSubtitlesMode = !it.isSubtitlesMode) }
+    }
+
+    /** Toggles whether reply suggestions also display Japanese kana/kanji. */
+    fun onToggleShowKana(enabled: Boolean) {
+        _uiState.update { it.copy(isShowKana = enabled) }
     }
 
     /** Toggles whether a finished translation is read aloud automatically. */
@@ -290,20 +332,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startSpeakingSpanish() {
         speechManager.listenInSpanish()
-        beginListening(isJapaneseInput = false)
+        beginListening(isForeignSpeech = false)
     }
 
-    private fun startListeningJapanese() {
-        speechManager.listenInJapanese()
-        beginListening(isJapaneseInput = true)
+    private fun startListeningForeignLanguage() {
+        val target = _uiState.value.targetLanguage
+        when (target) {
+            TargetLanguage.JAPANESE -> speechManager.listenInJapanese()
+            TargetLanguage.KOREAN -> speechManager.listenInKorean()
+        }
+        beginListening(isForeignSpeech = true)
     }
 
-    private fun beginListening(isJapaneseInput: Boolean) {
+    private fun beginListening(isForeignSpeech: Boolean) {
         _uiState.update {
             it.copy(
                 status = PipelineStatus.Listening,
                 isListening = true,
-                isListeningToJapanese = isJapaneseInput,
+                isListeningForeign = isForeignSpeech,
+                // The secondary "listen" mic always listens for the active
+                // foreign speaker's language (Japanese or Korean, per
+                // targetLanguage). "isListeningToJapanese" is kept as the
+                // signal the UI uses to show foreign-language reply cards.
+                isListeningToJapanese = if (isForeignSpeech) {
+                    _uiState.value.targetLanguage == TargetLanguage.JAPANESE
+                } else {
+                    false
+                },
                 errorMessage = null,
                 isTranslating = false,
                 isSpeaking = false,
@@ -323,11 +378,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun translateAndGetOptions(
         text: String,
         targetLang: TargetLanguage,
-        isJapaneseInput: Boolean,
+        isForeignSpeech: Boolean,
     ) {
         lastSpeechText = text
         val currentTarget = targetLang
-        Log.d(TAG, "translate: text=\"$text\" target=$currentTarget isJapaneseInput=$isJapaneseInput offline=${_uiState.value.isOfflineMode}")
+        Log.d(TAG, "translate: text=\"$text\" target=$currentTarget isForeignSpeech=$isForeignSpeech offline=${_uiState.value.isOfflineMode}")
 
         _uiState.update {
             it.copy(
@@ -337,7 +392,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 errorMessage = null,
                 isSpeaking = false,
                 sourceText = text,
-                sourceRomaji = if (isJapaneseInput) KanaRomaji.toRomajiIfKana(text) else null,
+                sourceRomaji = if (isForeignSpeech && targetLang == TargetLanguage.JAPANESE) {
+                    KanaRomaji.toRomajiIfKana(text)
+                } else {
+                    null
+                },
             )
         }
 
@@ -347,15 +406,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val result = withContext(Dispatchers.IO) {
                     if (_uiState.value.isOfflineMode) {
                         offlineTranslate(text, currentTarget)
-                    } else if (isJapaneseInput) {
-                        conversationTranslate(text, isJapaneseInput = true)
+                    } else if (isForeignSpeech) {
+                        conversationTranslate(text, targetLang)
                     } else {
                         // Spanish heard: normal translate to target language.
                         onlineTranslate(text, currentTarget)
                     }
                 }
                 Log.d(TAG, "translate result: main=\"${result.mainTranslation}\" alternatives=${result.alternatives} replySuggestions=${result.replySuggestions}")
-                onTranslationReady(result, currentTarget, isJapaneseInput)
+                onTranslationReady(result, currentTarget, isForeignSpeech)
             } catch (e: DeepSeekException) {
                 Log.e(TAG, "translate DeepSeekException", e)
                 lastSpeechText = null
@@ -393,14 +452,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         deepSeekApi.translate(text, target)
 
     /**
-     * Two-Way Conversation path used when the recognizer heard Japanese: the
-     * assistant returns a main translation into Mexican Spanish plus short
-     * Romaji reply suggestions in `alternatives`.
+     * Two-Way Conversation path used when the recognizer heard the foreign
+     * speaker's language (Japanese or Korean, per [foreignLang]): the assistant
+     * returns a main translation into Mexican Spanish plus short transliterated
+     * reply suggestions the user can tap to answer back.
      */
     private suspend fun conversationTranslate(
         text: String,
-        isJapaneseInput: Boolean,
-    ): TranslationResult = deepSeekApi.translateConversation(text, isJapaneseInput)
+        foreignLang: TargetLanguage,
+    ): TranslationResult = deepSeekApi.translateConversation(text, foreignLang)
 
     private suspend fun offlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         offlineTranslator.translate(text, target)
@@ -408,7 +468,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun onTranslationReady(
         result: TranslationResult,
         target: TargetLanguage,
-        isJapaneseInput: Boolean,
+        isForeignSpeech: Boolean,
     ) {
         lastSpeechText = null
         val state = _uiState.value
@@ -426,7 +486,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     sourceText = autoSourceText,
                     sourceRomaji = state.sourceRomaji,
                     translation = result.mainTranslation,
-                    isJapaneseInput = isJapaneseInput,
+                    isJapaneseInput = isForeignSpeech,
                 ),
             )
         }
@@ -439,9 +499,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun speakSpeech(text: String) {
         val state = _uiState.value
-        val targetLocale = if (state.isListeningToJapanese) {
-            // The user is listening to a Japanese speaker; read the translation
-            // out in Mexican Spanish for the user.
+        val targetLocale = if (state.isListeningForeign) {
+            // The user is listening to the foreign speaker; read the Spanish
+            // translation out for the user.
             Locale("es", "MX")
         } else {
             localeFor(state.targetLanguage)
@@ -451,9 +511,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         applySpeakFallback()
     }
 
-    /** Speaks a Romaji suggestion out loud in Japanese. */
-    private fun speakInJapanese(text: String) {
-        ttsManager.setLocale(Locale.JAPAN)
+    /** Speaks a transliterated reply suggestion in the foreign language. */
+    private fun speakInForeign(text: String) {
+        ttsManager.setLocale(localeFor(_uiState.value.targetLanguage))
         ttsManager.speak(text)
         applySpeakFallback()
     }
@@ -514,6 +574,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = PipelineStatus.Idle,
                 isListening = false,
                 isListeningToJapanese = false,
+                isListeningForeign = false,
                 isTranslating = false,
                 isSpeaking = false,
                 sourceText = null,

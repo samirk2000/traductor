@@ -42,9 +42,10 @@ class SpeechRecognitionManager(private val context: Context) {
     private val handler = android.os.Handler(context.mainLooper)
     private var retriedRestart = false
 
-    /** True while the recognizer is listening to a Japanese locale. */
-    private val isJapaneseLanguage: Boolean
-        get() = speechLanguage.equals(JAPANESE_SPEECH_LANGUAGE, ignoreCase = true)
+    /** True while the recognizer is listening in a foreign (non-Spanish) locale. */
+    private val isForeignLanguage: Boolean
+        get() = speechLanguage.equals(JAPANESE_SPEECH_LANGUAGE, ignoreCase = true) ||
+            speechLanguage.equals(KOREAN_SPEECH_LANGUAGE, ignoreCase = true)
 
     /** True while the recognizer is actively listening for speech. */
     val isListening: Boolean get() = recognizer != null
@@ -75,6 +76,11 @@ class SpeechRecognitionManager(private val context: Context) {
         speechLanguage = JAPANESE_SPEECH_LANGUAGE
         // If the device lacks an offline Japanese pack, the service may fall
         // back to network recognition; otherwise onError(11) surfaces guidance.
+    }
+
+    /** Configures the recognizer to listen for Korean. */
+    fun listenInKorean() {
+        speechLanguage = KOREAN_SPEECH_LANGUAGE
     }
 
     /** Stops listening. The recognizer finalizes and delivers via onResult. */
@@ -144,8 +150,8 @@ class SpeechRecognitionManager(private val context: Context) {
                 // Code 12: the requested language is not supported by the
                 // recognizer. Show guidance mainly when listening to Japanese.
                 SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> {
-                    if (isJapaneseLanguage) {
-                        "El idioma Japonés no está instalado en el motor de voz de Android. " +
+                    if (isForeignLanguage) {
+                        "El idioma seleccionado no está instalado en el motor de voz de Android. " +
                             "Ve a Ajustes > Dictado por voz de Google para descargarlo."
                     } else {
                         "El idioma de reconocimiento no está disponible en este dispositivo."
@@ -224,6 +230,7 @@ class SpeechRecognitionManager(private val context: Context) {
         const val TAG = "SpeechRecognition"
         const val DEFAULT_SPEECH_LANGUAGE = "es-MX"
         const val JAPANESE_SPEECH_LANGUAGE = "ja-JP"
+        const val KOREAN_SPEECH_LANGUAGE = "ko-KR"
         const val RETRY_DELAY_MILLIS = 600L
     }
 }
