@@ -86,6 +86,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arnold.voicetranslator.data.model.ReplySuggestion
 import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.ui.MainViewModel
+import com.arnold.voicetranslator.ui.state.LiveChatEntry
+import com.arnold.voicetranslator.ui.state.LiveTurn
 import com.arnold.voicetranslator.ui.state.PipelineStatus
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
@@ -119,6 +121,9 @@ class MainActivity : ComponentActivity() {
                     onTranslateSpanishText = viewModel::onTranslateSpanishText,
                     onToggleShowKana = viewModel::onToggleShowKana,
                     onTranslateJapaneseText = viewModel::onTranslateJapaneseText,
+                    onToggleLiveConversation = viewModel::onToggleLiveConversation,
+                    onLiveSpeakSpanish = viewModel::onLiveSpeakSpanish,
+                    onLiveSuggestionTapped = viewModel::onLiveSuggestionTapped,
                 )
             }
         }
@@ -177,6 +182,9 @@ private fun TranslatorScreen(
     onTranslateSpanishText: (String) -> Unit,
     onToggleShowKana: (Boolean) -> Unit,
     onTranslateJapaneseText: (String) -> Unit,
+    onToggleLiveConversation: () -> Unit,
+    onLiveSpeakSpanish: () -> Unit,
+    onLiveSuggestionTapped: (String) -> Unit,
 ) {
     var permissionRequestStarted by remember { mutableStateOf(false) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -221,6 +229,8 @@ private fun TranslatorScreen(
                 hasHistory = state.historyList.isNotEmpty(),
                 autoSpeakEnabled = state.isAutoSpeakEnabled,
                 showKana = state.isShowKana,
+                liveActive = state.isLiveConversation,
+                onToggleLive = onToggleLiveConversation,
                 onToggleOffline = onToggleOffline,
                 onDownloadModel = onDownloadModel,
                 onToggleSubtitles = onToggleSubtitles,
@@ -231,42 +241,54 @@ private fun TranslatorScreen(
 
             Spacer(Modifier.size(16.dp))
 
-            StatusIndicator(status = state.status)
-
-            Spacer(Modifier.size(12.dp))
-
-            TranslationDisplay(
-                state = state,
-                onReplay = onReplay,
-                onSuggestionTapped = onSuggestionTapped,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(if (state.historyList.isNotEmpty()) 0.62f else 1f),
-            )
-
-            if (state.historyList.isNotEmpty()) {
-                Spacer(Modifier.size(12.dp))
-                HistoryFeed(
-                    history = state.historyList,
+            if (state.isLiveConversation) {
+                // Live chat view: bubbles for TÚ/ELLOS plus the controls.
+                LiveConversationView(
+                    state = state,
+                    onLiveSpeakSpanish = onLiveSpeakSpanish,
+                    onLiveSuggestionTapped = onLiveSuggestionTapped,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.38f),
+                        .weight(1f),
+                )
+            } else {
+                StatusIndicator(status = state.status)
+
+                Spacer(Modifier.size(12.dp))
+
+                TranslationDisplay(
+                    state = state,
+                    onReplay = onReplay,
+                    onSuggestionTapped = onSuggestionTapped,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(if (state.historyList.isNotEmpty()) 0.62f else 1f),
+                )
+
+                if (state.historyList.isNotEmpty()) {
+                    Spacer(Modifier.size(12.dp))
+                    HistoryFeed(
+                        history = state.historyList,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(0.38f),
+                    )
+                }
+
+                Spacer(Modifier.size(12.dp))
+
+                ConversationMicRow(
+                    enabled = state.hasMicPermission,
+                    isBusy = state.isTranslating || state.isSpeaking,
+                    listeningSpanish = listeningSpanish,
+                    listeningForeign = listeningForeign,
+                    targetLanguage = state.targetLanguage,
+                    onSpeakSpanish = onSpeakSpanish,
+                    onListenJapanese = onListenJapanese,
+                    onTranslateSpanishText = onTranslateSpanishText,
+                    onTranslateJapaneseText = onTranslateJapaneseText,
                 )
             }
-
-            Spacer(Modifier.size(12.dp))
-
-            ConversationMicRow(
-                enabled = state.hasMicPermission,
-                isBusy = state.isTranslating || state.isSpeaking,
-                listeningSpanish = listeningSpanish,
-                listeningForeign = listeningForeign,
-                targetLanguage = state.targetLanguage,
-                onSpeakSpanish = onSpeakSpanish,
-                onListenJapanese = onListenJapanese,
-                onTranslateSpanishText = onTranslateSpanishText,
-                onTranslateJapaneseText = onTranslateJapaneseText,
-            )
         }
 
         // "Anime Subtitles" fullscreen overlay, drawn on top of the standard UI.
@@ -302,6 +324,8 @@ private fun HeaderBar(
     hasHistory: Boolean,
     autoSpeakEnabled: Boolean,
     showKana: Boolean,
+    liveActive: Boolean,
+    onToggleLive: () -> Unit,
     onToggleOffline: (Boolean) -> Unit,
     onDownloadModel: () -> Unit,
     onToggleSubtitles: () -> Unit,
@@ -331,6 +355,24 @@ private fun HeaderBar(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Text("Subtítulos")
+            }
+
+            Spacer(Modifier.width(4.dp))
+
+            // Live conversation toggle
+            FilledTonalButton(
+                onClick = onToggleLive,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (liveActive) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.0f)
+                    },
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(if (liveActive) "• En vivo" else "En vivo")
             }
 
             Spacer(Modifier.width(4.dp))
@@ -1223,3 +1265,255 @@ private fun SubtitlesOverlay(
         }
     }
 }
+
+// ===========================================================================
+// Live conversation (continuous two-way chat)
+// ===========================================================================
+
+/**
+ * The live conversation screen: a WhatsApp-style chat of bubbles (TÚ on the
+ * right, ELLOS on the left), a live transcript of whichever side is being
+ * heard, tappable suggested replies for the ELLOS turn, and a mic to speak
+ * Spanish (TÚ). The loop auto-advances: after the user's reply is read aloud
+ * the app returns to listen for the foreign speaker.
+ */
+@Composable
+private fun LiveConversationView(
+    state: TranslatorUiState,
+    onLiveSpeakSpanish: () -> Unit,
+    onLiveSuggestionTapped: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        val foreignLabel = when (state.targetLanguage) {
+            TargetLanguage.KOREAN -> "Coreano"
+            TargetLanguage.ENGLISH -> "Inglés"
+            TargetLanguage.JAPANESE -> "Japonés"
+        }
+
+        // Turn indicator
+        val turnText = when (state.liveTurn) {
+            LiveTurn.YOU -> "Estás hablando…"
+            LiveTurn.THEM -> "Escuchando $foreignLabel…"
+            null -> "Conversación en vivo"
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (state.liveTurn == LiveTurn.THEM) {
+                            Color(0xFFFFC107)
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                    ),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                turnText,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        // Live transcript while listening/speaking
+        if (state.liveTranscript.isNotBlank()) {
+            Spacer(Modifier.size(8.dp))
+            Text(
+                state.liveTranscript,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        Spacer(Modifier.size(12.dp))
+
+        // Chat bubbles
+        if (state.liveMessages.isEmpty() && state.result == null && !state.isTranslating) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Pulsa el botón de abajo para hablar,\no toca una sugerencia para responder.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.liveMessages.size, key = { it }) { index ->
+                    LiveChatBubble(state.liveMessages[index])
+                }
+            }
+        }
+
+        Spacer(Modifier.size(12.dp))
+
+        // Suggested replies for the ELLOS turn
+        val suggestions = state.result?.replySuggestions
+        if (state.liveTurn == LiveTurn.THEM && suggestions?.isNotEmpty() == true) {
+            LiveSuggestionCards(
+                suggestions = suggestions,
+                showKana = state.isShowKana,
+                onSuggestionTapped = onLiveSuggestionTapped,
+                enabled = !state.isSpeaking,
+            )
+            Spacer(Modifier.size(12.dp))
+        }
+
+        // Speak Spanish (TÚ) mic button
+        LiveMicBar(
+            isListening = state.isListening && state.liveTurn == LiveTurn.YOU,
+            busy = state.isTranslating || state.isSpeaking,
+            onSpeakSpanish = onLiveSpeakSpanish,
+        )
+    }
+}
+
+/** A single chat bubble: TÚ right-aligned (primary), ELLOS left-aligned. */
+@Composable
+private fun LiveChatBubble(entry: LiveChatEntry) {
+    val isYou = entry.turn == LiveTurn.YOU
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isYou) Arrangement.End else Arrangement.Start,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = if (isYou) 16.dp else 4.dp,
+                topEnd = if (isYou) 4.dp else 16.dp,
+                bottomStart = 16.dp,
+                bottomEnd = 16.dp,
+            ),
+            color = if (isYou) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            },
+            modifier = Modifier.fillMaxWidth(0.8f),
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Text(
+                    (if (isYou) "TÚ" else "ELLOS"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(2.dp))
+                Text(
+                    entry.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                entry.sourceRomaji?.takeIf { it != entry.text }?.let { romaji ->
+                    Spacer(Modifier.size(2.dp))
+                    Text(
+                        romaji,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    entry.translation,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Vertical stack of tappable reply suggestions shown during the ELLOS turn.
+ * Top = foreign phrase (romaji, + kana/kanji if toggled), bottom = Spanish meaning.
+ */
+@Composable
+private fun LiveSuggestionCards(
+    suggestions: List<com.arnold.voicetranslator.data.model.ReplySuggestion>,
+    showKana: Boolean,
+    onSuggestionTapped: (String) -> Unit,
+    enabled: Boolean,
+) {
+    suggestions.take(3).forEach { suggestion ->
+        Surface(
+            onClick = { onSuggestionTapped(suggestion.romaji) },
+            enabled = enabled,
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                if (showKana && suggestion.kana.isNotBlank()) {
+                    Text(
+                        suggestion.kana,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.size(2.dp))
+                }
+                Text(
+                    suggestion.romaji,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (suggestion.spanish.isNotBlank()) {
+                    Spacer(Modifier.size(2.dp))
+                    Text(
+                        suggestion.spanish,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Bottom bar with the "Hablar en Español" mic (TÚ turn). */
+@Composable
+private fun LiveMicBar(
+    isListening: Boolean,
+    busy: Boolean,
+    onSpeakSpanish: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ModeMicButton(
+            label = "Hablar en Español",
+            listening = isListening,
+            icon = { Icons.Default.RecordVoiceOver },
+            color = MaterialTheme.colorScheme.primary,
+            enabled = true,
+            isBusy = busy,
+            onClick = onSpeakSpanish,
+        )
+    }
+}
+

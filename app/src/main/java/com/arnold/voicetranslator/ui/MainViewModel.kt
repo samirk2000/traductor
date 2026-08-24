@@ -13,6 +13,8 @@ import com.arnold.voicetranslator.data.offline.MlKitOfflineTranslator
 import com.arnold.voicetranslator.data.remote.DeepSeekApiClient
 import com.arnold.voicetranslator.data.remote.DeepSeekException
 import com.arnold.voicetranslator.ui.state.PipelineStatus
+import com.arnold.voicetranslator.ui.state.LiveChatEntry
+import com.arnold.voicetranslator.ui.state.LiveTurn
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
 import com.arnold.voicetranslator.util.KanaRomaji
@@ -71,18 +73,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     errorMessage = null,
                 )
             }
+            // In live conversation mode, after the user's reply finishes
+            // playing aloud, automatically listen for the foreign speaker.
+            // NOTE: onSpeakFinished runs on the TTS binder thread, so hop onto
+            // the main thread first — SpeechRecognizer must be created from the
+            // application's main thread or it throws a RuntimeException.
+            viewModelScope.launch {
+                if (_uiState.value.isLiveConversation &&
+                    _uiState.value.liveTurn == LiveTurn.YOU
+                ) {
+                    startLiveForeignTurn()
+                }
+            }
         }
     }
 
     private fun wireAudioCallbacks() {
         speechManager.onPartialResult = { partial ->
-            _uiState.update { it.copy(errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    errorMessage = null,
+                    // Surface a live transcript while in a live conversation so
+                    // the user can see the foreign speaker (or their own) words
+                    // as they are being heard.
+                    liveTranscript = if (it.isLiveConversation) partial else "",
+                )
+            }
         }
 
         speechManager.onResult = { text ->
             lastSpeechText = null
             Log.d(TAG, "speech onResult: \"$text\"")
-            _uiState.update { it.copy(isListening = false) }
+            _uiState.update {
+                it.copy(
+                    isListening = false,
+                    liveTranscript = "",
+                )
+            }
             if (text.isBlank()) {
                 _uiState.update {
                     it.copy(
@@ -105,6 +132,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     status = PipelineStatus.Idle,
                     isListening = false,
                     errorMessage = message,
+                    liveTranscript = "",
                 )
             }
         }
@@ -136,6 +164,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onSelectLanguage(target: TargetLanguage) {
         if (target == _uiState.value.targetLanguage) return
         stopEverything()
+        _uiState.update {
+            it.copy(
+                isLiveConversation = false,
+                liveTurn = null,
+                liveMessages = emptyList(),
+            )
+        }
         applyTargetLanguage(target)
     }
 
@@ -322,6 +357,105 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(historyList = emptyList()) }
     }
 
+    // ---- Live conversation mode -------------------------------------------
+
+    /**
+     * Toggles the live (continuous) two-way conversation mode. When enabled, the
+     * app begins listening for the foreign speaker (ELLOS); when disabled it
+     * tears down the loop and returns to the standard mic flow.
+     */
+    fun onToggleLiveConversation() {
+        val state = _uiState.value
+        if (!state.hasMicPermission) {
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            return
+        }
+        if (state.isLiveConversation) {
+            stopEverything()
+            _uiState.update {
+                it.copy(
+                    isLiveConversation = false,
+                    liveTurn = null,
+                    liveTranscript = "",
+                )
+            }
+        } else {
+            stopEverything()
+            _uiState.update {
+                it.copy(
+                    isLiveConversation = true,
+                    liveTurn = null,
+                    liveTranscript = "",
+                )
+            }
+            startLiveForeignTurn()
+        }
+    }
+
+    /**
+     * Elects a suggested Romaji reply as the user's (TÚ) answer: speaks it out
+     * loud in the foreign language, records it in the chat, and — once the TTS
+     * finishes — automatically returns to listen for the foreign speaker (ELLOS).
+     */
+    fun onLiveSuggestionTapped(romajiSuggestion: String) {
+        if (romajiSuggestion.isBlank()) return
+        val state = _uiState.value
+        val spanish = liveSuggestions[romajiSuggestion] ?: ""
+        // Stop the continuous foreign listening so the reply can be spoken
+        // aloud without mic competition, and mark this as the user's turn.
+        speechManager.cancel()
+        _uiState.update {
+            it.copy(
+                status = PipelineStatus.Speaking,
+                liveTurn = LiveTurn.YOU,
+                isListening = false,
+                liveTranscript = "",
+                liveMessages = it.liveMessages + LiveChatEntry(
+                    turn = LiveTurn.YOU,
+                    text = romajiSuggestion,
+                    translation = spanish.ifBlank { romajiSuggestion },
+                ),
+            )
+        }
+        speakInForeign(romajiSuggestion)
+    }
+
+    /** Holds the last estimated meaning for each suggested reply, so the chat
+     *  bubble for a chosen suggestion can show its Spanish meaning. */
+    private val liveSuggestions = HashMap<String, String>()
+
+    /**
+     * Listens to the user speaking in Spanish (TÚ), translates it to the target
+     * language, and speaks it. When the TTS finishes, [ttsManager.onSpeakFinished]
+     * re-listens for the foreign speaker.
+     */
+    fun onLiveSpeakSpanish() {
+        val state = _uiState.value
+        if (!state.hasMicPermission) {
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                liveTurn = LiveTurn.YOU,
+                liveTranscript = "",
+            )
+        }
+        startSpeakingSpanish()
+    }
+
+    /** Begins a foreign (ELLOS) listening turn within the live conversation. */
+    private fun startLiveForeignTurn() {
+        _uiState.update {
+            it.copy(
+                liveTurn = LiveTurn.THEM,
+                liveTranscript = "",
+                errorMessage = null,
+            )
+        }
+        startListeningForeignLanguage()
+    }
+
     // ---- Internal pipeline --------------------------------------------------
 
     private fun applyTargetLanguage(target: TargetLanguage) {
@@ -365,6 +499,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isSpeaking = false,
                 sourceText = null,
                 sourceRomaji = null,
+                liveTranscript = "",
             )
         }
         ttsManager.stop()
@@ -473,6 +608,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         lastSpeechText = null
         val state = _uiState.value
+
+        // Live conversation path: render a chat bubble and, on the user's turn,
+        // play the reply aloud. The auto-return to the foreign listener happens
+        // in ttsManager.onSpeakFinished.
+        if (state.isLiveConversation) {
+            result.replySuggestions.forEach { it.spanish.takeIf { s -> s.isNotBlank() }
+                ?.let { s -> liveSuggestions[it.romaji] = s } }
+            _uiState.update {
+                it.copy(
+                    result = result,
+                    isTranslating = false,
+                    isSpeaking = false,
+                    errorMessage = null,
+                    liveTurn = if (isForeignSpeech) LiveTurn.THEM else LiveTurn.YOU,
+                    liveMessages = it.liveMessages + LiveChatEntry(
+                        turn = if (isForeignSpeech) LiveTurn.THEM else LiveTurn.YOU,
+                        text = state.sourceText ?: "",
+                        translation = result.mainTranslation,
+                        sourceRomaji = if (isForeignSpeech && target == TargetLanguage.JAPANESE) {
+                            state.sourceRomaji
+                        } else {
+                            null
+                        },
+                    ),
+                )
+            }
+            // On the user's spoken (Spanish) turn, read the translation aloud in
+            // the foreign language; foreign (ELLOS) turns are never spoken here.
+            if (!isForeignSpeech && state.isAutoSpeakEnabled) {
+                speakInForeign(result.mainTranslation)
+            }
+            // Continuous live mode: after capturing a foreign phrase, immediately
+            // keep listening for the next thing the foreign speaker says, so the
+            // conversation flows without requiring the user to tap anything.
+            // The user can interrupt at any time by speaking Spanish or tapping a
+            // suggestion. (onTranslationReady runs on the main thread, so this is safe.)
+            if (isForeignSpeech && !speechManager.isListening) {
+                startLiveForeignTurn()
+            }
+            return
+        }
+
         val sourceText = state.sourceText
         val autoSourceText = sourceText ?: ""
         val autoSpeak = state.isAutoSpeakEnabled
@@ -570,6 +747,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         lastSpeechText = null
         speechManager.cancel()
         ttsManager.stop()
+        liveSuggestions.clear()
         _uiState.update {
             it.copy(
                 status = PipelineStatus.Idle,
@@ -580,6 +758,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isSpeaking = false,
                 sourceText = null,
                 sourceRomaji = null,
+                liveTranscript = "",
             )
         }
     }

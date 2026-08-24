@@ -51,6 +51,26 @@ data class TranslationHistoryItem(
     val isJapaneseInput: Boolean,
 )
 
+/** Which side is currently active in a live conversation. */
+enum class LiveTurn {
+    /** "TÚ": the user speaks Spanish. */
+    YOU,
+    /** "ELLOS": the foreign speaker talks in the active target language. */
+    THEM,
+}
+
+/**
+ * A single chat bubble in the live conversation. [text] is the read/typed text
+ * (Spanish for [LiveTurn.YOU], the foreign language for [LiveTurn.THEM]) and
+ * [translation] is the rendered translation of that turn.
+ */
+data class LiveChatEntry(
+    val turn: LiveTurn,
+    val text: String,
+    val translation: String,
+    val sourceRomaji: String? = null,
+)
+
 /**
  * Immutable, once-per-render UI state consumed by the Compose layer.
  * Exposed as a single [kotlinx.coroutines.flow.StateFlow] from the ViewModel.
@@ -86,6 +106,14 @@ data class TranslatorUiState(
     val isAutoSpeakEnabled: Boolean = true,
     /** When true, reply suggestions also show the Japanese kana/kanji text. */
     val isShowKana: Boolean = false,
+    /** When true, the live (continuous) two-way conversation mode is active. */
+    val isLiveConversation: Boolean = false,
+    /** Which side is currently speaking/listening; null when not in a turn. */
+    val liveTurn: LiveTurn? = null,
+    /** Live (partial) transcript being heard during the current turn. */
+    val liveTranscript: String = "",
+    /** The rolling chat feed of the live conversation, oldest first. */
+    val liveMessages: List<LiveChatEntry> = emptyList(),
 ) {
     val statusText: String
         get() = status.statusText
