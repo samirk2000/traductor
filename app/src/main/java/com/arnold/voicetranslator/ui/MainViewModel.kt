@@ -506,6 +506,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Begins a foreign (ELLOS) listening turn within the live conversation. */
     private fun startLiveForeignTurn() {
+        // Drop the previous turn's romaji->spanish lookup map too, not just the
+        // on-screen cards, so a stale suggestion never resolves to an old
+        // meaning if it somehow lingered (e.g. a duplicate romaji string from a
+        // prior turn).
+        liveSuggestions.clear()
         _uiState.update {
             it.copy(
                 liveTurn = LiveTurn.THEM,
