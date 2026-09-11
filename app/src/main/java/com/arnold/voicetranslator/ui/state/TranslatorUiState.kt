@@ -69,6 +69,8 @@ data class LiveChatEntry(
     val text: String,
     val translation: String,
     val sourceRomaji: String? = null,
+    /** Stable identity for Compose list keys (data classes aren't valid keys). */
+    val id: String = java.util.UUID.randomUUID().toString(),
 )
 
 /**
