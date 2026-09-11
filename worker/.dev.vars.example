@@ -1,0 +1,5 @@
+# Copy this file to `.dev.vars` (gitignored) for local `wrangler dev` testing.
+# For production, use `wrangler secret put <NAME>` instead — never put real
+# keys in a committed file.
+GOOGLE_API_KEY=your-google-cloud-translation-api-key
+DEEPSEEK_API_KEY=your-deepseek-api-key
