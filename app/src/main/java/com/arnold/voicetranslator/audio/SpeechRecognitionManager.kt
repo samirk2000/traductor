@@ -2,6 +2,10 @@ package com.arnold.voicetranslator.audio
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -42,6 +46,47 @@ class SpeechRecognitionManager(private val context: Context) {
     private val handler = android.os.Handler(context.mainLooper)
     private var retriedRestart = false
 
+    // ---- Audio focus ---------------------------------------------------
+    // Request exclusive transient focus while recording so other apps (music,
+    // notifications) duck/pause instead of bleeding into the recognizer's
+    // input, and so we don't keep recording over another app's playback.
+    private val audioManager =
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var focusRequest: AudioFocusRequest? = null
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { }
+
+    private fun requestAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener(focusChangeListener)
+                .build()
+            focusRequest = request
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                focusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE,
+            )
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            focusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(focusChangeListener)
+        }
+    }
+
     /** True while the recognizer is listening in a foreign (non-Spanish) locale. */
     private val isForeignLanguage: Boolean
         get() = speechLanguage.equals(JAPANESE_SPEECH_LANGUAGE, ignoreCase = true) ||
@@ -59,6 +104,7 @@ class SpeechRecognitionManager(private val context: Context) {
         Log.d(TAG, "start() -> language=$speechLanguage")
         resetRetryGuard()
         destroyRecognizer()
+        requestAudioFocus()
 
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).also { sr ->
             sr.setRecognitionListener(createListener())
@@ -116,6 +162,7 @@ class SpeechRecognitionManager(private val context: Context) {
             Log.w(TAG, "SpeechRecognizer.destroy() failed")
         }
         recognizer = null
+        abandonAudioFocus()
     }
 
     /**
