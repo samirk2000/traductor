@@ -12,6 +12,8 @@ import com.arnold.voicetranslator.data.offline.MlKitOfflineException
 import com.arnold.voicetranslator.data.offline.MlKitOfflineTranslator
 import com.arnold.voicetranslator.data.remote.DeepSeekApiClient
 import com.arnold.voicetranslator.data.remote.DeepSeekException
+import com.arnold.voicetranslator.data.remote.WorkerApiClient
+import com.arnold.voicetranslator.data.remote.WorkerApiException
 import com.arnold.voicetranslator.ui.state.PipelineStatus
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
@@ -42,6 +44,13 @@ import java.util.Locale
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val deepSeekApi = DeepSeekApiClient()
+    // Fast non-DeepSeek path for the simple Spanish->target translate flow
+    // (Google Cloud Translation via our Cloudflare Worker proxy, no client
+    // key). Korean and the live-conversation reply-suggestion flow still use
+    // DeepSeek directly (see onlineTranslate/conversationTranslate below) —
+    // Google's Korean output is raw Hangul, not the phonetic Spanish
+    // transliteration this app's "Coreano Fonético" mode is built around.
+    private val workerApi = WorkerApiClient()
     private val offlineTranslator = MlKitOfflineTranslator()
 
     private val speechManager = SpeechRecognitionManager(application.applicationContext)
@@ -638,6 +647,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         errorMessage = e.message ?: "Error de traducción offline.",
                     )
                 }
+            } catch (e: WorkerApiException) {
+                Log.e(TAG, "translate WorkerApiException", e)
+                lastSpeechText = null
+                _uiState.update {
+                    it.copy(
+                        status = PipelineStatus.Idle,
+                        isTranslating = false,
+                        errorMessage = e.message ?: "Error al traducir.",
+                    )
+                }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 lastSpeechText = null
@@ -652,8 +671,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Simple Spanish -> target translation for the standard (non-live) flow.
+     * Korean stays on DeepSeek (needs the Spanish-phonetic transliteration
+     * prompt, not raw Hangul). Japanese/English go through the Worker
+     * (Google Translate); Japanese output is additionally romanized
+     * client-side via [KanaRomaji] since Google returns kana/kanji, not
+     * romaji — same best-effort conversion already used by the offline path,
+     * with the same known limitation (kanji passes through unconverted).
+     */
     private suspend fun onlineTranslate(text: String, target: TargetLanguage): TranslationResult =
-        deepSeekApi.translate(text, target)
+        when (target) {
+            TargetLanguage.KOREAN -> deepSeekApi.translate(text, target)
+            TargetLanguage.JAPANESE, TargetLanguage.ENGLISH -> {
+                val translated = workerApi.translate(text, target.id)
+                val mainTranslation = if (target == TargetLanguage.JAPANESE) {
+                    KanaRomaji.toRomajiIfKana(translated).ifBlank { translated }
+                } else {
+                    translated
+                }
+                TranslationResult(mainTranslation = mainTranslation.ifBlank { text })
+            }
+        }
 
     /**
      * Two-Way Conversation path used when the recognizer heard the foreign
@@ -834,6 +873,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         speechManager.release()
         ttsManager.release()
         deepSeekApi.close()
+        workerApi.close()
     }
 
     private companion object {
