@@ -9,32 +9,10 @@ android {
     namespace = "com.arnold.voicetranslator"
     compileSdk = 35
 
-    // DeepSeek API key. Read from local.properties (root, git-ignored) first so
-    // the secret never has to live in a committed file; gradle.properties (via
-    // findProperty) is kept as a secondary fallback.
-    val deepSeekApiKey: String = run {
-        var fromLocal: String? = null
-        val localProps = rootProject.file("local.properties")
-        if (localProps.isFile) {
-            try {
-                val lines = localProps.readLines()
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.startsWith("deepseek.apiKey=")) {
-                        val v = trimmed.substringAfter('=').trim()
-                        if (v.isNotEmpty()) fromLocal = v
-                        break
-                    }
-                }
-            } catch (_: Exception) {
-                fromLocal = null
-            }
-        }
-        fromLocal
-            ?: ((project.findProperty("deepseek.apiKey") as? String)?.takeIf { it.isNotBlank() })
-            ?: ""
-    }
-
+    // No API keys of any kind are read or embedded here anymore. All online
+    // translation (Google Translate + DeepSeek) is proxied through our own
+    // Cloudflare Worker (see /worker); the Worker holds those secrets
+    // server-side and this client only ever talks to our own domain.
     defaultConfig {
         applicationId = "com.arnold.voicetranslator"
         minSdk = 24
@@ -46,8 +24,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        buildConfigField("String", "DEEPSEEK_API_KEY", "\"$deepSeekApiKey\"")
     }
 
     buildTypes {

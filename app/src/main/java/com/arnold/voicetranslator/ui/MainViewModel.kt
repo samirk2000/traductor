@@ -10,8 +10,6 @@ import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.data.model.TranslationResult
 import com.arnold.voicetranslator.data.offline.MlKitOfflineException
 import com.arnold.voicetranslator.data.offline.MlKitOfflineTranslator
-import com.arnold.voicetranslator.data.remote.DeepSeekApiClient
-import com.arnold.voicetranslator.data.remote.DeepSeekException
 import com.arnold.voicetranslator.data.remote.WorkerApiClient
 import com.arnold.voicetranslator.data.remote.WorkerApiException
 import com.arnold.voicetranslator.ui.state.PipelineStatus
@@ -37,19 +35,17 @@ import java.util.Locale
  * Wires together:
  *  - native [SpeechRecognitionManager] (switchable Spanish / Japanese STT),
  *  - [TtsManager] (Spanish / Japanese / Korean playback),
- *  - [DeepSeekApiClient] (online translation, incl. two-way conversation),
+ *  - [WorkerApiClient] (online translation, incl. two-way conversation, via
+ *    our Cloudflare Worker proxy — no API key lives in this app),
  *  - [MlKitOfflineTranslator] (offline fallback),
  * and exposes every meaningful flag as a single immutable [StateFlow].
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val deepSeekApi = DeepSeekApiClient()
-    // Fast non-DeepSeek path for the simple Spanish->target translate flow
-    // (Google Cloud Translation via our Cloudflare Worker proxy, no client
-    // key). Korean and the live-conversation reply-suggestion flow still use
-    // DeepSeek directly (see onlineTranslate/conversationTranslate below) —
-    // Google's Korean output is raw Hangul, not the phonetic Spanish
-    // transliteration this app's "Coreano Fonético" mode is built around.
+    // Every online translation path (Spanish->target, Korean phonetic, and
+    // the live-conversation reply-suggestion flow) now goes through our
+    // Cloudflare Worker proxy. No API key of any kind lives in this app
+    // anymore — the Worker holds the Google/DeepSeek secrets server-side.
     private val workerApi = WorkerApiClient()
     private val offlineTranslator = MlKitOfflineTranslator()
 
@@ -628,16 +624,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 Log.d(TAG, "translate result: main=\"${result.mainTranslation}\" alternatives=${result.alternatives} replySuggestions=${result.replySuggestions}")
                 onTranslationReady(result, currentTarget, isForeignSpeech)
-            } catch (e: DeepSeekException) {
-                Log.e(TAG, "translate DeepSeekException", e)
-                lastSpeechText = null
-                _uiState.update {
-                    it.copy(
-                        status = PipelineStatus.Idle,
-                        isTranslating = false,
-                        errorMessage = e.message ?: "Error al traducir.",
-                    )
-                }
             } catch (e: MlKitOfflineException) {
                 lastSpeechText = null
                 _uiState.update {
@@ -673,16 +659,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Simple Spanish -> target translation for the standard (non-live) flow.
-     * Korean stays on DeepSeek (needs the Spanish-phonetic transliteration
-     * prompt, not raw Hangul). Japanese/English go through the Worker
-     * (Google Translate); Japanese output is additionally romanized
-     * client-side via [KanaRomaji] since Google returns kana/kanji, not
-     * romaji — same best-effort conversion already used by the offline path,
-     * with the same known limitation (kanji passes through unconverted).
+     * Korean goes through the Worker's /translate-ko-phonetic (DeepSeek under
+     * the hood — needs the Spanish-phonetic transliteration prompt, not raw
+     * Hangul). Japanese/English go through /translate (Google Translate);
+     * Japanese output is additionally romanized client-side via [KanaRomaji]
+     * since Google returns kana/kanji, not romaji — same best-effort
+     * conversion already used by the offline path, with the same known
+     * limitation (kanji passes through unconverted).
      */
     private suspend fun onlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         when (target) {
-            TargetLanguage.KOREAN -> deepSeekApi.translate(text, target)
+            TargetLanguage.KOREAN -> workerApi.translateKoreanPhonetic(text)
             TargetLanguage.JAPANESE, TargetLanguage.ENGLISH -> {
                 val translated = workerApi.translate(text, target.id)
                 val mainTranslation = if (target == TargetLanguage.JAPANESE) {
@@ -696,14 +683,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Two-Way Conversation path used when the recognizer heard the foreign
-     * speaker's language (Japanese or Korean, per [foreignLang]): the assistant
-     * returns a main translation into Mexican Spanish plus short transliterated
-     * reply suggestions the user can tap to answer back.
+     * speaker's language (Japanese, Korean, or English, per [foreignLang]):
+     * the Worker's /converse (DeepSeek under the hood) returns a main
+     * translation into Mexican Spanish plus short transliterated reply
+     * suggestions the user can tap to answer back.
      */
     private suspend fun conversationTranslate(
         text: String,
         foreignLang: TargetLanguage,
-    ): TranslationResult = deepSeekApi.translateConversation(text, foreignLang)
+    ): TranslationResult = workerApi.converse(text, foreignLang.id)
 
     private suspend fun offlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         offlineTranslator.translate(text, target)
@@ -872,7 +860,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         speechManager.release()
         ttsManager.release()
-        deepSeekApi.close()
         workerApi.close()
     }
 
