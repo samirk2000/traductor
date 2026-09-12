@@ -54,6 +54,12 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // kuromoji-core and kuromoji-ipadic both bundle identical
+            // metadata/license files, which collide during resource merging.
+            excludes += "/META-INF/*.md"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
+            excludes += "/META-INF/DEPENDENCIES"
         }
     }
 }
@@ -82,6 +88,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(libs.mlkit.translate)
+    implementation(libs.kuromoji.ipadic)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

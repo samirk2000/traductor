@@ -17,6 +17,7 @@ import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
+import com.arnold.voicetranslator.util.JapaneseRomajiConverter
 import com.arnold.voicetranslator.util.KanaRomaji
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -662,10 +663,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Korean goes through the Worker's /translate-ko-phonetic (DeepSeek under
      * the hood — needs the Spanish-phonetic transliteration prompt, not raw
      * Hangul). Japanese/English go through /translate (Google Translate);
-     * Japanese output is additionally romanized client-side via [KanaRomaji]
-     * since Google returns kana/kanji, not romaji — same best-effort
-     * conversion already used by the offline path, with the same known
-     * limitation (kanji passes through unconverted).
+     * Japanese output is additionally romanized client-side via
+     * [JapaneseRomajiConverter] (Kuromoji) since Google returns kana/kanji,
+     * not romaji. Unlike the old [KanaRomaji]-only fallback, this fully
+     * romanizes kanji too (not just kana) via morphological analysis.
      */
     private suspend fun onlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         when (target) {
@@ -673,7 +674,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             TargetLanguage.JAPANESE, TargetLanguage.ENGLISH -> {
                 val translated = workerApi.translate(text, target.id)
                 val mainTranslation = if (target == TargetLanguage.JAPANESE) {
-                    KanaRomaji.toRomajiIfKana(translated).ifBlank { translated }
+                    val romaji = JapaneseRomajiConverter.kanjiToRomaji(translated)
+                    Log.d(
+                        TAG,
+                        "JA_ROMAJI_DEBUG onlineTranslate: input=\"$text\" googleRaw=\"$translated\" romaji=\"$romaji\"",
+                    )
+                    romaji
                 } else {
                     translated
                 }
