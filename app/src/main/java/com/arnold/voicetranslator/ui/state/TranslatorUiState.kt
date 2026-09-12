@@ -40,6 +40,20 @@ enum class MicAction {
     Stop,
 }
 
+/** Download state of a single language's offline (ML Kit) model. */
+enum class ModelDownloadStatus {
+    NOT_DOWNLOADED,
+    DOWNLOADING,
+    DOWNLOADED,
+}
+
+/** Per-language offline model status, shown in the "Modelos Offline" settings section. */
+data class OfflineModelInfo(
+    val target: TargetLanguage,
+    val status: ModelDownloadStatus = ModelDownloadStatus.NOT_DOWNLOADED,
+    val progress: Float = 0f,
+)
+
 /**
  * A single completed exchange, kept so the user can scroll back through the
  * conversation (original speech, romaji reading, and resulting translation).
@@ -131,6 +145,24 @@ data class TranslatorUiState(
     val liveMessages: List<LiveChatEntry> = emptyList(),
     /** When true, the continuous foreign listening in live mode is paused. */
     val isLiveListeningPaused: Boolean = false,
+    /** Per-language offline (ML Kit) model status for the Settings screen. */
+    val offlineModels: Map<TargetLanguage, OfflineModelInfo> = TargetLanguage.entries.associateWith {
+        OfflineModelInfo(target = it)
+    },
+    /**
+     * Non-null when a translation was attempted offline but the model for
+     * this language isn't downloaded yet — the UI shows a dialog asking to
+     * download it, naming the language explicitly instead of a generic
+     * "unrecognized language" error.
+     */
+    val missingOfflineModelPrompt: TargetLanguage? = null,
+    /**
+     * Guidance shown (as a Snackbar with an "Abrir Ajustes" action) when the
+     * native Android SpeechRecognizer can't find an installed offline voice
+     * pack while there's no network (e.g. airplane mode) — replaces the
+     * confusing generic "idioma no reconocido" error in that specific case.
+     */
+    val voiceOfflineGuidance: String? = null,
 ) {
     val statusText: String
         get() = status.statusText

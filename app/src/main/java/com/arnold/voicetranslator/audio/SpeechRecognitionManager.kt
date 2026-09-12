@@ -5,6 +5,8 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
@@ -34,6 +36,29 @@ class SpeechRecognitionManager(private val context: Context) {
 
     /** Called when recognition fails (no speech, error, etc). */
     var onError: (String) -> Unit = {}
+
+    /**
+     * When true, asks the recognizer to prefer on-device/offline recognition
+     * (`RecognizerIntent.EXTRA_PREFER_OFFLINE`). Without this, the system
+     * recognizer defaults to online/network recognition even when an offline
+     * language pack is downloaded — which is exactly why, in testing,
+     * "modo sin conexión" + a downloaded offline pack (e.g. Coreano) still
+     * failed in airplane mode: the request was still trying to reach the
+     * network. Kept in sync with the app's "Modo sin conexión" toggle.
+     */
+    var preferOfflineRecognition: Boolean = false
+
+    /**
+     * Called instead of [onError] specifically when the recognizer can't find
+     * a supported/installed language (error 12) or a usable client (error 5)
+     * while there's no network connection — i.e. the classic "modo avión +
+     * modo sin conexión" case where the on-device offline voice pack for the
+     * requested language was never downloaded from Android Settings. Lets the
+     * UI show precise guidance ("ve a Ajustes > Voz offline...") with a
+     * button that opens [android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS]
+     * instead of a confusing generic "idioma no reconocido" message.
+     */
+    var onOfflineVoiceUnavailable: () -> Unit = {}
 
     /** Notified when the recognizer has begun running (mic active). */
     var onReady: () -> Unit = {}
@@ -85,6 +110,21 @@ class SpeechRecognitionManager(private val context: Context) {
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(focusChangeListener)
         }
+    }
+
+    /**
+     * True when the device currently has a usable network connection
+     * (mobile data or Wi-Fi with internet capability). False in airplane
+     * mode or with no signal — used to tell a real "language not supported"
+     * error apart from "the offline voice pack just isn't downloaded".
+     */
+    private fun isNetworkAvailable(): Boolean {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true // Fail open: don't misreport airplane mode if the service is unavailable.
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     /** True while the recognizer is listening in a foreign (non-Spanish) locale. */
@@ -190,6 +230,28 @@ class SpeechRecognitionManager(private val context: Context) {
 
         override fun onError(error: Int) {
             Log.e(TAG, "onError code=$error language=$speechLanguage")
+
+            // "modo avión + modo sin conexión" case: the recognizer reports
+            // the language as unsupported (12), the client as unusable (5),
+            // or — the code actually seen on real devices in testing —
+            // ERROR_LANGUAGE_UNAVAILABLE (13, API 31+): the language exists
+            // but its offline pack isn't installed. All three happen because
+            // there's no network to fall back to AND the offline voice pack
+            // for this language was never downloaded from system Settings.
+            // Surface a precise, actionable message instead of the generic
+            // "idioma no reconocido" / "(13)", which reads like an app bug
+            // rather than a missing system download.
+            val isLanguageOrClientError = error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                error == SpeechRecognizer.ERROR_CLIENT ||
+                error == ERROR_LANGUAGE_UNAVAILABLE_CODE
+            if (isLanguageOrClientError && !isNetworkAvailable()) {
+                Log.e(TAG, "onError: offline + language/client error -> guiding to Voz offline settings")
+                pendingResults.clear()
+                onOfflineVoiceUnavailable()
+                onEnd()
+                return
+            }
+
             val message = when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH -> "No se detectó habla"
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Tiempo de escucha agotado"
@@ -277,6 +339,9 @@ class SpeechRecognitionManager(private val context: Context) {
                 2500L,
             )
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            if (preferOfflineRecognition) {
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            }
         }
 
     private companion object {
@@ -286,5 +351,11 @@ class SpeechRecognitionManager(private val context: Context) {
         const val KOREAN_SPEECH_LANGUAGE = "ko-KR"
         const val ENGLISH_SPEECH_LANGUAGE = "en-US"
         const val RETRY_DELAY_MILLIS = 600L
+        // SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE — added in API 31, kept
+        // as a literal so this branch also compiles/works correctly if the
+        // constant isn't resolvable on some toolchains, and to document
+        // exactly which real-device error code this handles (confirmed via
+        // on-device testing: OnePlus 15, airplane mode, offline mode).
+        const val ERROR_LANGUAGE_UNAVAILABLE_CODE = 13
     }
 }

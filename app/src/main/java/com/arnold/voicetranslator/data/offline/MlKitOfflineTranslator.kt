@@ -115,10 +115,11 @@ class MlKitOfflineTranslator {
 
         val downloaded = isModelDownloaded(target)
         if (!downloaded) {
-            throw MlKitOfflineException(
-                "El modelo de traducción offline no está descargado. " +
-                    "Toca \"Descargar modelo\" para usarlo sin conexión."
-            )
+            // Typed so the ViewModel can show a specific "download this
+            // model?" dialog instead of a generic error banner — this is the
+            // exact "modo avión + sin conexión" case where a translation was
+            // attempted before the model was ever downloaded.
+            throw ModelNotDownloadedException(target)
         }
 
         val result = try {
@@ -165,4 +166,25 @@ class MlKitOfflineTranslator {
 /**
  * Typed, UI-friendly error for the offline path.
  */
-class MlKitOfflineException(message: String) : Exception(message)
+open class MlKitOfflineException(message: String) : Exception(message)
+
+/**
+ * Thrown specifically when the on-device model for [target] hasn't been
+ * downloaded yet — lets the ViewModel show a targeted "download this model?"
+ * dialog (naming the language and its approximate size) instead of a generic
+ * error banner. This is the exact "modo avión, idioma no reconocido" case:
+ * the user is offline and simply never downloaded the model.
+ */
+class ModelNotDownloadedException(val target: TargetLanguage) : MlKitOfflineException(
+    "Falta el modelo offline de ${target.displayName} " +
+        "(~${OfflineModelSize.approxMbFor(target)} MB). Descárgalo para usarlo sin conexión.",
+)
+
+/** Rough, user-facing download-size estimates for ML Kit's translate models. */
+object OfflineModelSize {
+    fun approxMbFor(target: TargetLanguage): Int = when (target) {
+        TargetLanguage.JAPANESE -> 30
+        TargetLanguage.KOREAN -> 30
+        TargetLanguage.ENGLISH -> 30
+    }
+}

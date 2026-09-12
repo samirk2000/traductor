@@ -10,11 +10,14 @@ import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.data.model.TranslationResult
 import com.arnold.voicetranslator.data.offline.MlKitOfflineException
 import com.arnold.voicetranslator.data.offline.MlKitOfflineTranslator
+import com.arnold.voicetranslator.data.offline.ModelNotDownloadedException
 import com.arnold.voicetranslator.data.remote.WorkerApiClient
 import com.arnold.voicetranslator.data.remote.WorkerApiException
 import com.arnold.voicetranslator.ui.state.PipelineStatus
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
+import com.arnold.voicetranslator.ui.state.ModelDownloadStatus
+import com.arnold.voicetranslator.ui.state.OfflineModelInfo
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
 import com.arnold.voicetranslator.util.JapaneseRomajiConverter
@@ -57,6 +60,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var translateJob: Job? = null
     private var lastSpeechText: String? = null
+
+    // Counts consecutive ERROR_LANGUAGE_UNAVAILABLE/ERROR_CLIENT/ERROR_LANGUAGE_NOT_SUPPORTED
+    // failures in Live mode's continuous foreign-listening loop. When a
+    // language's offline voice pack genuinely isn't available on this device
+    // (confirmed real-device case: OnePlus only offers Chino/Coreano offline,
+    // not Español/Japonés), every restart attempt fails again instantly —
+    // capped so we don't spin forever draining battery, while still not
+    // requiring the user to press "Reanudar" for the first several retries.
+    private var offlineVoiceRetryCount = 0
 
     init {
         wireAudioCallbacks()
@@ -109,6 +121,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         speechManager.onResult = { text ->
             lastSpeechText = null
+            offlineVoiceRetryCount = 0
             Log.d(TAG, "speech onResult: \"$text\"")
             _uiState.update {
                 it.copy(
@@ -171,6 +184,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         speechManager.onEnd = {
             _uiState.update { it.copy(isListening = false) }
         }
+
+        // "modo avión + modo sin conexión": the recognizer couldn't find an
+        // installed offline voice pack for the requested language and there's
+        // no network to fall back to. Show precise, actionable guidance
+        // (Ajustes > Voz offline) instead of a generic error, which the user
+        // reasonably reads as an app bug.
+        speechManager.onOfflineVoiceUnavailable = {
+            _uiState.update {
+                it.copy(
+                    status = PipelineStatus.Idle,
+                    isListening = false,
+                    liveTranscript = "",
+                    // Some devices/idiomas simplemente no ofrecen paquete de
+                    // voz offline para descargar (p. ej. solo Chino/Coreano
+                    // en ciertos OnePlus) — en ese caso ningún ajuste lo
+                    // arregla; hay que usar texto o desactivar modo avión.
+                    voiceOfflineGuidance = "Este idioma no tiene reconocimiento de voz sin conexión " +
+                        "en tu teléfono. Ve a Ajustes > Voz offline y descarga el paquete si aparece " +
+                        "disponible; si no aparece, tu equipo no lo soporta offline — usa el modo de " +
+                        "texto o desactiva el modo avión para reconocer por voz.",
+                )
+            }
+            // Same as the "silence" case below: in Live mode, this shouldn't
+            // feel like the mic "closed" — it should only stop listening when
+            // the user explicitly pauses (Pausar button) or switches to the
+            // other turn (habla Español). So keep the continuous foreign
+            // listening loop going instead of requiring "Reanudar" every time
+            // — but cap it: if the device's offline voice pack for this
+            // language genuinely doesn't exist (confirmed real case: some
+            // OnePlus models only offer Chino/Coreano offline, not
+            // Español/Japonés), every retry fails again instantly, so an
+            // uncapped loop would just burn battery forever.
+            val live = _uiState.value
+            if (live.isLiveConversation && !live.isLiveListeningPaused) {
+                when (live.liveTurn) {
+                    LiveTurn.THEM -> {
+                        if (offlineVoiceRetryCount < MAX_OFFLINE_VOICE_RETRIES) {
+                            offlineVoiceRetryCount++
+                            // Small delay so a voice pack that's genuinely
+                            // missing (and will error again instantly)
+                            // doesn't spin in a tight retry loop — mirrors
+                            // SpeechRecognitionManager's own retry delay.
+                            viewModelScope.launch {
+                                delay(600)
+                                startListeningForeignLanguage()
+                            }
+                        }
+                    }
+                    LiveTurn.YOU -> {
+                        // Pressing "hablar Español" failed (e.g. this device
+                        // has no offline Spanish pack) — don't leave the
+                        // conversation stuck on a dead YOU turn forever
+                        // (previously the mic would never turn back on).
+                        // Fall back to listening for the foreign speaker
+                        // instead, since retrying Spanish would just fail
+                        // again the same way.
+                        viewModelScope.launch {
+                            delay(600)
+                            startLiveForeignTurn()
+                        }
+                    }
+                    null -> Unit
+                }
+            }
+        }
+    }
+
+    /** Dismisses the "voz offline" guidance banner shown after onOfflineVoiceUnavailable. */
+    fun onDismissVoiceOfflineGuidance() {
+        _uiState.update { it.copy(voiceOfflineGuidance = null) }
     }
 
     private fun checkInitialModelState() {
@@ -352,6 +435,88 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _uiState.update { it.copy(isModelDownloaded = downloaded) }
         }
+        refreshAllOfflineModelStates()
+    }
+
+    /**
+     * Refreshes the downloaded/not-downloaded status of all three languages'
+     * offline models, for the Settings screen's "Modelos Offline" section.
+     */
+    fun refreshAllOfflineModelStates() {
+        viewModelScope.launch {
+            TargetLanguage.entries.forEach { target ->
+                val downloaded = withContext(Dispatchers.IO) {
+                    offlineTranslator.isModelDownloaded(target)
+                }
+                _uiState.update { state ->
+                    // Don't clobber a download in progress with a stale check.
+                    val current = state.offlineModels[target]
+                    if (current?.status == ModelDownloadStatus.DOWNLOADING) return@update state
+                    state.copy(
+                        offlineModels = state.offlineModels + (
+                            target to OfflineModelInfo(
+                                target = target,
+                                status = if (downloaded) ModelDownloadStatus.DOWNLOADED else ModelDownloadStatus.NOT_DOWNLOADED,
+                            )
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Downloads the offline model for [target] (used by the 3-card "Modelos Offline" section). */
+    fun downloadOfflineModelFor(target: TargetLanguage) {
+        val current = _uiState.value.offlineModels[target]
+        if (current?.status == ModelDownloadStatus.DOWNLOADED || current?.status == ModelDownloadStatus.DOWNLOADING) {
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { state ->
+                state.copy(
+                    offlineModels = state.offlineModels + (
+                        target to OfflineModelInfo(target, ModelDownloadStatus.DOWNLOADING, 0f)
+                    ),
+                )
+            }
+            val success = offlineTranslator.downloadModel(target) { progress ->
+                _uiState.update { state ->
+                    state.copy(
+                        offlineModels = state.offlineModels + (
+                            target to OfflineModelInfo(target, ModelDownloadStatus.DOWNLOADING, progress)
+                        ),
+                    )
+                }
+            }
+            _uiState.update { state ->
+                state.copy(
+                    offlineModels = state.offlineModels + (
+                        target to OfflineModelInfo(
+                            target = target,
+                            status = if (success) ModelDownloadStatus.DOWNLOADED else ModelDownloadStatus.NOT_DOWNLOADED,
+                            progress = if (success) 1f else 0f,
+                        )
+                    ),
+                    errorMessage = if (success) state.errorMessage else "No se pudo descargar el modelo de ${target.displayName}.",
+                    // Keep the legacy single-language indicator in sync too,
+                    // since it's still used by the quick "Descargar modelo"
+                    // menu item for the currently selected language.
+                    isModelDownloaded = if (target == state.targetLanguage) success else state.isModelDownloaded,
+                )
+            }
+        }
+    }
+
+    /** Confirms the "falta el modelo offline de X" prompt and starts downloading it. */
+    fun onConfirmDownloadMissingModel() {
+        val target = _uiState.value.missingOfflineModelPrompt ?: return
+        _uiState.update { it.copy(missingOfflineModelPrompt = null) }
+        downloadOfflineModelFor(target)
+    }
+
+    /** Dismisses the "falta el modelo offline de X" prompt without downloading. */
+    fun onDismissMissingModelPrompt() {
+        _uiState.update { it.copy(missingOfflineModelPrompt = null) }
     }
 
     /** Replays the current main translation with the appropriate TTS locale. */
@@ -517,6 +682,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Begins a foreign (ELLOS) listening turn within the live conversation. */
     private fun startLiveForeignTurn() {
+        // A fresh, user/flow-initiated turn (not an error retry) — reset the
+        // offline-voice-unavailable retry cap so a manual restart (turn
+        // switch, resume from pause, etc.) always gets a full set of retries.
+        offlineVoiceRetryCount = 0
         // Drop the previous turn's romaji->spanish lookup map too, not just the
         // on-screen cards, so a stale suggestion never resolves to an old
         // meaning if it somehow lingered (e.g. a duplicate romaji string from a
@@ -583,6 +752,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         ttsManager.stop()
+        // Kept in sync right before every start(): without this, the system
+        // recognizer defaults to online recognition even with a downloaded
+        // offline language pack, so "Modo sin conexión" + airplane mode would
+        // still fail for a language whose pack IS installed (e.g. Coreano).
+        speechManager.preferOfflineRecognition = _uiState.value.isOfflineMode
         speechManager.start()
     }
 
@@ -636,6 +810,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 Log.d(TAG, "translate result: main=\"${result.mainTranslation}\" alternatives=${result.alternatives} replySuggestions=${result.replySuggestions}")
                 onTranslationReady(result, currentTarget, isForeignSpeech)
+            } catch (e: ModelNotDownloadedException) {
+                // Specific "modo avión" case: don't just show an error banner,
+                // prompt to download the exact missing model.
+                lastSpeechText = null
+                _uiState.update {
+                    it.copy(
+                        status = PipelineStatus.Idle,
+                        isTranslating = false,
+                        missingOfflineModelPrompt = e.target,
+                    )
+                }
             } catch (e: MlKitOfflineException) {
                 lastSpeechText = null
                 _uiState.update {
@@ -934,6 +1119,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val TAG = "VoiceTranslator"
+        /** Max consecutive auto-retries when the offline voice pack is missing. */
+        const val MAX_OFFLINE_VOICE_RETRIES = 5
         const val SPEAK_FALLBACK_MILLIS = 15_000L
     }
 }

@@ -1,9 +1,11 @@
 package com.arnold.voicetranslator
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -79,6 +81,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -90,6 +93,8 @@ import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.ui.MainViewModel
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
+import com.arnold.voicetranslator.ui.state.ModelDownloadStatus
+import com.arnold.voicetranslator.ui.state.OfflineModelInfo
 import com.arnold.voicetranslator.ui.state.PipelineStatus
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
@@ -127,6 +132,11 @@ class MainActivity : ComponentActivity() {
                     onLiveSpeakSpanish = viewModel::onLiveSpeakSpanish,
                     onLiveSuggestionTapped = viewModel::onLiveSuggestionTapped,
                     onToggleLiveListeningPause = viewModel::onToggleLiveListeningPause,
+                    onDownloadOfflineModelFor = viewModel::downloadOfflineModelFor,
+                    onRefreshOfflineModels = viewModel::refreshAllOfflineModelStates,
+                    onConfirmDownloadMissingModel = viewModel::onConfirmDownloadMissingModel,
+                    onDismissMissingModelPrompt = viewModel::onDismissMissingModelPrompt,
+                    onDismissVoiceOfflineGuidance = viewModel::onDismissVoiceOfflineGuidance,
                 )
             }
         }
@@ -189,7 +199,13 @@ private fun TranslatorScreen(
     onLiveSpeakSpanish: () -> Unit,
     onLiveSuggestionTapped: (String) -> Unit,
     onToggleLiveListeningPause: () -> Unit,
+    onDownloadOfflineModelFor: (TargetLanguage) -> Unit,
+    onRefreshOfflineModels: () -> Unit,
+    onConfirmDownloadMissingModel: () -> Unit,
+    onDismissMissingModelPrompt: () -> Unit,
+    onDismissVoiceOfflineGuidance: () -> Unit,
 ) {
+    val context = LocalContext.current
     var permissionRequestStarted by remember { mutableStateOf(false) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -241,7 +257,46 @@ private fun TranslatorScreen(
                 onClearHistory = onClearHistory,
                 onToggleAutoSpeak = onToggleAutoSpeak,
                 onToggleShowKana = onToggleShowKana,
+                offlineModels = state.offlineModels,
+                onDownloadOfflineModelFor = onDownloadOfflineModelFor,
+                onRefreshOfflineModels = onRefreshOfflineModels,
             )
+
+            // Guidance banner for the "modo avión + voz offline no descargada"
+            // case — replaces the confusing generic "idioma no reconocido"
+            // error with an actionable message and a button straight to the
+            // system's offline voice settings.
+            state.voiceOfflineGuidance?.let { guidance ->
+                Spacer(Modifier.size(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            guidance,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Row {
+                            TextButton(onClick = {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                                onDismissVoiceOfflineGuidance()
+                            }) {
+                                Text("Abrir Ajustes")
+                            }
+                            TextButton(onClick = onDismissVoiceOfflineGuidance) {
+                                Text("Cerrar")
+                            }
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.size(16.dp))
 
@@ -305,6 +360,34 @@ private fun TranslatorScreen(
             )
         }
     }
+
+    // "Falta el modelo offline de X. ¿Descargar ~30 MB?" — shown when a
+    // translation was attempted in modo sin conexión before the model for
+    // that language was ever downloaded (the exact "modo avión, idioma no
+    // reconocido" case, but now named explicitly instead of failing silently).
+    state.missingOfflineModelPrompt?.let { target ->
+        AlertDialog(
+            onDismissRequest = onDismissMissingModelPrompt,
+            title = { Text("Falta el modelo offline") },
+            text = {
+                Text(
+                    "Falta el modelo offline de ${target.displayName} " +
+                        "(~${com.arnold.voicetranslator.data.offline.OfflineModelSize.approxMbFor(target)} MB). " +
+                        "¿Descargarlo ahora para poder traducir sin conexión?",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirmDownloadMissingModel) {
+                    Text("Descargar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissMissingModelPrompt) {
+                    Text("Cancelar")
+                }
+            },
+        )
+    }
 }
 
 // ===========================================================================
@@ -337,8 +420,16 @@ private fun HeaderBar(
     onClearHistory: () -> Unit,
     onToggleAutoSpeak: (Boolean) -> Unit,
     onToggleShowKana: (Boolean) -> Unit,
+    offlineModels: Map<TargetLanguage, OfflineModelInfo>,
+    onDownloadOfflineModelFor: (TargetLanguage) -> Unit,
+    onRefreshOfflineModels: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // Refresh the per-language download status whenever the menu is opened,
+    // so "Modelos Offline" always reflects what's actually on disk.
+    LaunchedEffect(menuOpen) {
+        if (menuOpen) onRefreshOfflineModels()
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -519,6 +610,99 @@ private fun HeaderBar(
                             text = { Text("Modelo descargado") },
                             onClick = {},
                             enabled = false,
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                    Text(
+                        "Modelos Offline",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                    Column(
+                        modifier = Modifier
+                            .width(280.dp)
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        TargetLanguage.entries.forEach { lang ->
+                            val info = offlineModels[lang] ?: OfflineModelInfo(lang)
+                            OfflineModelCard(
+                                language = lang,
+                                info = info,
+                                onDownload = { onDownloadOfflineModelFor(lang) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One card in the "Modelos Offline" settings section: language + flag,
+ * download status ("Descargado" / "No descargado" / "Descargando… NN%"), and
+ * a download button/progress bar.
+ */
+@Composable
+private fun OfflineModelCard(
+    language: TargetLanguage,
+    info: OfflineModelInfo,
+    onDownload: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("${language.flagEmoji} ${language.displayName}", modifier = Modifier.weight(1f))
+            when (info.status) {
+                ModelDownloadStatus.DOWNLOADED -> {
+                    Icon(
+                        Icons.Default.Cloud,
+                        contentDescription = "Descargado",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Descargado", style = MaterialTheme.typography.labelSmall)
+                }
+                ModelDownloadStatus.DOWNLOADING -> {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            "Descargando… ${(info.progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Spacer(Modifier.size(4.dp))
+                        LinearProgressIndicator(
+                            progress = { info.progress },
+                            modifier = Modifier.width(80.dp),
+                        )
+                    }
+                }
+                ModelDownloadStatus.NOT_DOWNLOADED -> {
+                    Text(
+                        "No descargado",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                    IconButton(onClick = onDownload, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Default.CloudDownload,
+                            contentDescription = "Descargar modelo de ${language.displayName}",
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
