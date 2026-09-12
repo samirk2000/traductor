@@ -10,3 +10,11 @@
 .cxx
 local.properties
 .kotlin/
+
+# Unrelated stray files that land in this folder (it's a shared Downloads
+# subfolder) — ignored at the repo root only, doesn't affect app/ resources.
+/*.pdf
+/*.html
+/*.png
+/*.jpg
+/*.jpeg
