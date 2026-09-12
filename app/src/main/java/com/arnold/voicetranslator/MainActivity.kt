@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -1375,16 +1376,53 @@ private fun LiveConversationView(
                 )
             }
         } else {
+            val listState = rememberLazyListState()
+            val messages = state.liveMessages
+
+            // Auto-scroll so the newest message (the user's own speech OR the
+            // incoming translation) is always revealed at the bottom, like any
+            // normal chat app — old messages get pushed up out of view. Always
+            // scrolling (rather than only when "near the bottom") keeps this
+            // simple and reliable; a chat this size has no real "scroll up to
+            // read history and don't get yanked back" use case yet.
+            LaunchedEffect(messages.size) {
+                if (messages.isNotEmpty()) {
+                    // scrollToItem first (instant, guaranteed) then an animated
+                    // pass on top — belt-and-suspenders in case the instant
+                    // jump alone doesn't get re-measured before the animation
+                    // starts (has happened with LazyColumn + fast list growth).
+                    listState.scrollToItem(messages.lastIndex)
+                    listState.animateScrollToItem(messages.lastIndex)
+                }
+            }
+
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 4.dp),
             ) {
-                items(state.liveMessages, key = { it.id }) { entry ->
-                    LiveChatBubble(entry)
+                items(messages, key = { it.id }) { entry ->
+                    LiveChatBubble(entry, showKana = state.isShowKana)
                 }
             }
+        }
+
+        // Surfaced here (not just in the non-Live TranslationDisplay) so a
+        // failed turn — e.g. the Worker's daily rate limit — is never a
+        // silent dead end while in Live mode; previously it only updated
+        // state.errorMessage with nothing on screen to show it.
+        state.errorMessage?.let { message ->
+            Spacer(Modifier.size(8.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         Spacer(Modifier.size(12.dp))
@@ -1412,7 +1450,7 @@ private fun LiveConversationView(
 
 /** A single chat bubble: TÚ right-aligned (primary), ELLOS left-aligned. */
 @Composable
-private fun LiveChatBubble(entry: LiveChatEntry) {
+private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean) {
     val isYou = entry.turn == LiveTurn.YOU
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1444,6 +1482,17 @@ private fun LiveChatBubble(entry: LiveChatEntry) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Kana/kanji companion for `text` (used by the tapped-suggestion
+                // bubble, where `text` holds the Japanese Romaji being sent).
+                if (showKana) {
+                    entry.textKana?.takeIf { it.isNotBlank() && it != entry.text }?.let { kana ->
+                        Text(
+                            kana,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 entry.sourceRomaji?.takeIf { it != entry.text }?.let { romaji ->
                     Spacer(Modifier.size(2.dp))
                     Text(
@@ -1459,6 +1508,20 @@ private fun LiveChatBubble(entry: LiveChatEntry) {
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                // Kana/kanji companion for `translation` — shown for the TÚ
+                // turn's own JP output (Google/Kuromoji Romaji) so a native
+                // speaker can read the original script too, gated by the same
+                // "Mostrar kana" toggle used for ELLOS's reply suggestions.
+                if (showKana) {
+                    entry.translationKana?.takeIf { it.isNotBlank() && it != entry.translation }?.let { kana ->
+                        Spacer(Modifier.size(2.dp))
+                        Text(
+                            kana,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
         }
     }

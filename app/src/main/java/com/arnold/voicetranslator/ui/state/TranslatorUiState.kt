@@ -69,6 +69,19 @@ data class LiveChatEntry(
     val text: String,
     val translation: String,
     val sourceRomaji: String? = null,
+    /**
+     * For [LiveTurn.YOU] entries translated into Japanese: the native
+     * kana/kanji script for [translation] (which itself holds the Romaji),
+     * so a native speaker can also read the original script. Null for
+     * non-Japanese targets or when unavailable.
+     */
+    val translationKana: String? = null,
+    /**
+     * Native kana/kanji companion for [text] instead of [translation] — used
+     * by the tapped-suggestion reply bubble, where [text] (not [translation])
+     * holds the Japanese Romaji being sent.
+     */
+    val textKana: String? = null,
     /** Stable identity for Compose list keys (data classes aren't valid keys). */
     val id: String = java.util.UUID.randomUUID().toString(),
 )

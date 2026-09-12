@@ -19,6 +19,14 @@ data class TranslationResult(
     val alternatives: List<String> = emptyList(),
     /** Structured Romaji reply suggestions (each with its Spanish meaning). */
     val replySuggestions: List<ReplySuggestion> = emptyList(),
+    /**
+     * For Japanese targets: the native kana/kanji script behind
+     * [mainTranslation] (which itself holds the Romaji), so native speakers
+     * can read it too. Null for other targets or when unavailable. Kept
+     * separate from [alternatives], which has its own unrelated UI meaning
+     * (alternative phrasings shown in the standard translate screen).
+     */
+    val nativeScript: String? = null,
 )
 
 /**

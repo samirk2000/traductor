@@ -18,7 +18,6 @@ import com.arnold.voicetranslator.ui.state.LiveTurn
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
 import com.arnold.voicetranslator.util.JapaneseRomajiConverter
-import com.arnold.voicetranslator.util.KanaRomaji
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -37,7 +36,7 @@ import java.util.Locale
  *  - native [SpeechRecognitionManager] (switchable Spanish / Japanese STT),
  *  - [TtsManager] (Spanish / Japanese / Korean playback),
  *  - [WorkerApiClient] (online translation, incl. two-way conversation, via
- *    our Cloudflare Worker proxy — no API key lives in this app),
+ *    our Cloudflare Worker proxy â€” no API key lives in this app),
  *  - [MlKitOfflineTranslator] (offline fallback),
  * and exposes every meaningful flag as a single immutable [StateFlow].
  */
@@ -46,7 +45,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Every online translation path (Spanish->target, Korean phonetic, and
     // the live-conversation reply-suggestion flow) now goes through our
     // Cloudflare Worker proxy. No API key of any kind lives in this app
-    // anymore — the Worker holds the Google/DeepSeek secrets server-side.
+    // anymore â€” the Worker holds the Google/DeepSeek secrets server-side.
     private val workerApi = WorkerApiClient()
     private val offlineTranslator = MlKitOfflineTranslator()
 
@@ -82,7 +81,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // In live conversation mode, after the user's reply finishes
             // playing aloud, automatically listen for the foreign speaker.
             // NOTE: onSpeakFinished runs on the TTS binder thread, so hop onto
-            // the main thread first — SpeechRecognizer must be created from the
+            // the main thread first â€” SpeechRecognizer must be created from the
             // application's main thread or it throws a RuntimeException.
             viewModelScope.launch {
                 if (_uiState.value.isLiveConversation &&
@@ -121,7 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         status = PipelineStatus.Idle,
-                        errorMessage = "No se capturó ningún texto.",
+                        errorMessage = "No se capturÃ³ ningÃºn texto.",
                     )
                 }
             } else {
@@ -158,7 +157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // In live mode, transient silence (no speech / speech timeout) while
             // waiting for the foreign speaker should keep the mic open so the
             // conversation stays continuous. Restart listening on the main thread.
-            val isSilence = message.contains("No se detectó habla") ||
+            val isSilence = message.contains("No se detectÃ³ habla") ||
                 message.contains("Tiempo de escucha agotado")
             if (_uiState.value.isLiveConversation &&
                 !_uiState.value.isLiveListeningPaused &&
@@ -230,7 +229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onMicToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrÃ³fono.") }
             return
         }
         if (state.isListening) {
@@ -241,13 +240,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Mic #1 — "Hablar en Español": transcribes Mexican Spanish and translates
+     * Mic #1 â€” "Hablar en EspaÃ±ol": transcribes Mexican Spanish and translates
      * it to the configured target language, then speaks it out (TTS in JA/KO).
      */
     fun onSpeakSpanishToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrÃ³fono.") }
             return
         }
         if (state.isListening) {
@@ -305,7 +304,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Mic #2 — "Escuchar [Idioma nativo]": transcribes the active foreign
+     * Mic #2 â€” "Escuchar [Idioma nativo]": transcribes the active foreign
      * language (Japanese or Korean, per targetLanguage), translates it to
      * Mexican Spanish (shown + read aloud), and returns short transliterated
      * reply suggestions the user can tap to answer back.
@@ -313,7 +312,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onListenJapaneseToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrÃ³fono.") }
             return
         }
         if (state.isListening) {
@@ -325,7 +324,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Reads a suggested Romaji reply out loud so the local Japanese speaker can
-     * hear it. Only enabled in "Escuchar Japonés" mode.
+     * hear it. Only enabled in "Escuchar JaponÃ©s" mode.
      */
     fun onSuggestionTapped(romajiSuggestion: String) {
         if (romajiSuggestion.isBlank()) return
@@ -400,7 +399,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onToggleLiveConversation() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrÃ³fono.") }
             return
         }
         if (state.isLiveConversation) {
@@ -428,14 +427,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Elects a suggested Romaji reply as the user's (TÚ) answer: speaks it out
-     * loud in the foreign language, records it in the chat, and — once the TTS
-     * finishes — automatically returns to listen for the foreign speaker (ELLOS).
+     * Elects a suggested Romaji reply as the user's (TÃš) answer: speaks it out
+     * loud in the foreign language, records it in the chat, and â€” once the TTS
+     * finishes â€” automatically returns to listen for the foreign speaker (ELLOS).
      */
     fun onLiveSuggestionTapped(romajiSuggestion: String) {
         if (romajiSuggestion.isBlank()) return
         val state = _uiState.value
         val spanish = liveSuggestions[romajiSuggestion] ?: ""
+        val kana = liveSuggestionsKana[romajiSuggestion]
         // Stop the continuous foreign listening so the reply can be spoken
         // aloud without mic competition, and mark this as the user's turn.
         speechManager.cancel()
@@ -452,6 +452,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     turn = LiveTurn.YOU,
                     text = romajiSuggestion,
                     translation = spanish.ifBlank { romajiSuggestion },
+                    textKana = kana,
                 ),
             )
         }
@@ -462,15 +463,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      *  bubble for a chosen suggestion can show its Spanish meaning. */
     private val liveSuggestions = HashMap<String, String>()
 
+    /** Holds the native kana/kanji script for each suggested reply (keyed by
+     *  its romaji), so a tapped-suggestion bubble can also show the kana. */
+    private val liveSuggestionsKana = HashMap<String, String>()
+
     /**
-     * Listens to the user speaking in Spanish (TÚ), translates it to the target
+     * Listens to the user speaking in Spanish (TÃš), translates it to the target
      * language, and speaks it. When the TTS finishes, [ttsManager.onSpeakFinished]
      * re-listens for the foreign speaker.
      */
     fun onLiveSpeakSpanish() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrÃ³fono.") }
             return
         }
         _uiState.update {
@@ -517,6 +522,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // meaning if it somehow lingered (e.g. a duplicate romaji string from a
         // prior turn).
         liveSuggestions.clear()
+        liveSuggestionsKana.clear()
         _uiState.update {
             it.copy(
                 liveTurn = LiveTurn.THEM,
@@ -602,8 +608,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 errorMessage = null,
                 isSpeaking = false,
                 sourceText = text,
+                // Uses the Kuromoji-backed converter (not the old kana-only
+                // KanaRomaji) so kanji in what the foreign speaker said is
+                // actually romanized too, instead of leaking through
+                // unconverted (e.g. "本当nisumimasen" instead of "hontou ni
+                // sumimasen") — the exact bug reported in the romaji field.
                 sourceRomaji = if (isForeignSpeech && targetLang == TargetLanguage.JAPANESE) {
-                    KanaRomaji.toRomajiIfKana(text)
+                    JapaneseRomajiConverter.kanjiToRomaji(text)
                 } else {
                     null
                 },
@@ -631,7 +642,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         status = PipelineStatus.Idle,
                         isTranslating = false,
-                        errorMessage = e.message ?: "Error de traducción offline.",
+                        errorMessage = e.message ?: "Error de traducciÃ³n offline.",
                     )
                 }
             } catch (e: WorkerApiException) {
@@ -651,7 +662,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         status = PipelineStatus.Idle,
                         isTranslating = false,
-                        errorMessage = "Ocurrió un error inesperado.",
+                        errorMessage = "OcurriÃ³ un error inesperado.",
                     )
                 }
             }
@@ -661,7 +672,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Simple Spanish -> target translation for the standard (non-live) flow.
      * Korean goes through the Worker's /translate-ko-phonetic (DeepSeek under
-     * the hood — needs the Spanish-phonetic transliteration prompt, not raw
+     * the hood â€” needs the Spanish-phonetic transliteration prompt, not raw
      * Hangul). Japanese/English go through /translate (Google Translate);
      * Japanese output is additionally romanized client-side via
      * [JapaneseRomajiConverter] (Kuromoji) since Google returns kana/kanji,
@@ -683,7 +694,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     translated
                 }
-                TranslationResult(mainTranslation = mainTranslation.ifBlank { text })
+                TranslationResult(
+                    mainTranslation = mainTranslation.ifBlank { text },
+                    // Keep the raw Google output (kana/kanji for Japanese) so
+                    // the UI can show the native script alongside the Romaji
+                    // for native speakers to read too.
+                    nativeScript = if (target == TargetLanguage.JAPANESE) translated else null,
+                )
             }
         }
 
@@ -697,7 +714,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun conversationTranslate(
         text: String,
         foreignLang: TargetLanguage,
-    ): TranslationResult = workerApi.converse(text, foreignLang.id)
+    ): TranslationResult {
+        val result = workerApi.converse(text, foreignLang.id)
+        if (foreignLang != TargetLanguage.JAPANESE) return result
+        // Defensive guard: DeepSeek's /converse occasionally leaks raw
+        // kana/kanji into a suggestion's "romaji" field instead of an actual
+        // Latin-script transliteration ("se bugea" â€” kana shows where romaji
+        // should be). Detect Japanese script and re-romanize via Kuromoji so
+        // the romaji slot is always guaranteed to be Latin text.
+        return result.copy(
+            replySuggestions = result.replySuggestions.map { suggestion ->
+                val fixedRomaji = sanitizeJapaneseRomaji(suggestion.romaji)
+                if (fixedRomaji != suggestion.romaji) {
+                    Log.d(
+                        TAG,
+                        "JA_ROMAJI_DEBUG conversationTranslate: fixed leaked kana in suggestion romaji: " +
+                            "\"${suggestion.romaji}\" -> \"$fixedRomaji\"",
+                    )
+                }
+                suggestion.copy(romaji = fixedRomaji)
+            },
+        )
+    }
+
+    /** True if [text] contains Hiragana, Katakana, or Kanji characters. */
+    private fun containsJapaneseScript(text: String): Boolean =
+        text.any { ch -> ch in '\u3040'..'\u30FF' || ch in '\u4E00'..'\u9FFF' }
+
+    /**
+     * Ensures a "romaji" string is actually Latin-script romaji. If it
+     * contains kana/kanji (a leaked model mistake), re-romanizes it via
+     * [JapaneseRomajiConverter]; otherwise returns it unchanged.
+     */
+    private fun sanitizeJapaneseRomaji(text: String): String =
+        if (containsJapaneseScript(text)) JapaneseRomajiConverter.kanjiToRomaji(text) else text
 
     private suspend fun offlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         offlineTranslator.translate(text, target)
@@ -714,8 +764,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // play the reply aloud. The auto-return to the foreign listener happens
         // in ttsManager.onSpeakFinished.
         if (state.isLiveConversation) {
-            result.replySuggestions.forEach { it.spanish.takeIf { s -> s.isNotBlank() }
-                ?.let { s -> liveSuggestions[it.romaji] = s } }
+            result.replySuggestions.forEach {
+                it.spanish.takeIf { s -> s.isNotBlank() }
+                    ?.let { s -> liveSuggestions[it.romaji] = s }
+                it.kana.takeIf { k -> k.isNotBlank() }
+                    ?.let { k -> liveSuggestionsKana[it.romaji] = k }
+            }
             _uiState.update {
                 it.copy(
                     result = result,
@@ -729,6 +783,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         translation = result.mainTranslation,
                         sourceRomaji = if (isForeignSpeech && target == TargetLanguage.JAPANESE) {
                             state.sourceRomaji
+                        } else {
+                            null
+                        },
+                        // TÃš turn translated into Japanese: also carry the
+                        // native kana/kanji script so it can be shown next to
+                        // the Romaji for a native speaker to read.
+                        translationKana = if (!isForeignSpeech && target == TargetLanguage.JAPANESE) {
+                            result.nativeScript?.takeIf { kana -> kana != result.mainTranslation }
                         } else {
                             null
                         },
@@ -817,7 +879,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startDownload(target: TargetLanguage) = viewModelScope.launch {
         // Already downloaded for this language, do nothing.
         if (_uiState.value.isModelDownloaded) {
-            _uiState.update { it.copy(errorMessage = "El modelo ya está descargado.") }
+            _uiState.update { it.copy(errorMessage = "El modelo ya estÃ¡ descargado.") }
             return@launch
         }
 
@@ -841,6 +903,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         speechManager.cancel()
         ttsManager.stop()
         liveSuggestions.clear()
+        liveSuggestionsKana.clear()
         _uiState.update {
             it.copy(
                 status = PipelineStatus.Idle,
