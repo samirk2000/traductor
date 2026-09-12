@@ -15,7 +15,12 @@ export async function checkAndIncrementRateLimit(
   const key = `ratelimit:${ip}:${today}`
 
   const current = parseInt((await kv.get(key)) ?? '0', 10)
-  if (current >= limitPerDay) {
+  // Desactivado temporalmente para fase dev (mucho volumen de pruebas
+  // manuales bloqueando el desarrollo) — la lógica original queda intacta,
+  // solo el "&& false" la vuelve inalcanzable. El contador sigue
+  // incrementándose abajo, así que las métricas de uso no se pierden.
+  // TODO: reactivar con sistema de quotas + Auth al final del proyecto
+  if (false && current >= limitPerDay) {
     return false
   }
 
