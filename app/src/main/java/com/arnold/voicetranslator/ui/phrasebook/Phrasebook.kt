@@ -45,8 +45,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arnold.voicetranslator.data.model.TargetLanguage
 import org.json.JSONArray
 import java.util.Locale
 
@@ -68,6 +70,9 @@ import java.util.Locale
 
 data class PhraseJa(val kana: String, val romaji: String)
 data class PhraseKo(val hangul: String, val romanized: String)
+/** Optional — the bundled JSON doesn't provide English data yet, so this is
+ *  parsed defensively and simply absent (null) for every phrase today. */
+data class PhraseEn(val text: String, val romanized: String)
 
 data class Phrase(
     val id: String,
@@ -75,7 +80,28 @@ data class Phrase(
     val es: String,
     val ja: PhraseJa,
     val ko: PhraseKo,
+    val en: PhraseEn? = null,
 )
+
+/** One language's native script + phonetic reading + TTS locale, resolved
+ *  from a [Phrase] for whichever [TargetLanguage] is currently active. */
+private data class NativeScript(val main: String, val phonetic: String, val locale: Locale)
+
+/**
+ * Picks only the active target language's native script + phonetic reading
+ * out of [phrase] — the Fraseario shows exactly one language at a time now
+ * (mirrors the main Traductor's current idioma de salida), instead of always
+ * mixing Japanese and Korean together.
+ */
+private fun nativeScriptFor(phrase: Phrase, target: TargetLanguage): NativeScript = when (target) {
+    TargetLanguage.JAPANESE -> NativeScript(phrase.ja.kana, phrase.ja.romaji, Locale.JAPAN)
+    TargetLanguage.KOREAN -> NativeScript(phrase.ko.hangul, phrase.ko.romanized, Locale.KOREA)
+    TargetLanguage.ENGLISH -> phrase.en?.let { NativeScript(it.text, it.romanized, Locale.ENGLISH) }
+        // No "en" data in phrasebook.json yet — fall back to the Spanish
+        // text itself (already Latin script, no romaji needed) instead of
+        // showing an empty card.
+        ?: NativeScript(phrase.es, "", Locale.ENGLISH)
+}
 
 /** Ordered list of categories as they should appear in the filter chips. */
 val PHRASEBOOK_CATEGORIES = listOf(
@@ -102,6 +128,7 @@ private fun loadPhrasebook(context: Context): List<Phrase> {
                 val obj = array.getJSONObject(i)
                 val jaObj = obj.getJSONObject("ja")
                 val koObj = obj.getJSONObject("ko")
+                val enObj = obj.optJSONObject("en")
                 add(
                     Phrase(
                         id = obj.getString("id"),
@@ -115,6 +142,12 @@ private fun loadPhrasebook(context: Context): List<Phrase> {
                             hangul = koObj.getString("hangul"),
                             romanized = koObj.getString("romanized"),
                         ),
+                        en = enObj?.let {
+                            PhraseEn(
+                                text = it.getString("text"),
+                                romanized = it.optString("romanized", ""),
+                            )
+                        },
                     ),
                 )
             }
@@ -180,7 +213,12 @@ private class PhrasebookTts(context: Context) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PhrasebookScreen(modifier: Modifier = Modifier) {
+fun PhrasebookScreen(
+    modifier: Modifier = Modifier,
+    // Mirrors the main Traductor's "idioma de salida" so the Fraseario shows
+    // the same single active language instead of always mixing JA + KO.
+    targetLanguage: TargetLanguage = TargetLanguage.JAPANESE,
+) {
     val context = LocalContext.current
 
     val phrases = remember { loadPhrasebook(context) }
@@ -225,7 +263,7 @@ fun PhrasebookScreen(modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.size(4.dp))
         Text(
-            "Frases esenciales en japonés y coreano",
+            "Frases esenciales en ${targetLanguage.displayName}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -305,12 +343,13 @@ fun PhrasebookScreen(modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(bottom = 16.dp),
             ) {
                 items(filtered, key = { it.id }) { phrase ->
+                    val native = nativeScriptFor(phrase, targetLanguage)
                     PhraseCard(
-                        phrase = phrase,
+                        es = phrase.es,
+                        native = native,
                         isFavorite = favorites.contains(phrase.id),
                         onToggleFavorite = { toggleFavorite(phrase.id) },
-                        onSpeakJapanese = { tts.speak(phrase.ja.kana, Locale.JAPAN) },
-                        onSpeakKorean = { tts.speak(phrase.ko.hangul, Locale.KOREA) },
+                        onSpeak = { tts.speak(native.main, native.locale) },
                     )
                 }
             }
@@ -322,13 +361,20 @@ fun PhrasebookScreen(modifier: Modifier = Modifier) {
 // Card UI
 // ---------------------------------------------------------------------
 
+/**
+ * Single-language phrase card: Spanish small/gray on top, the active target
+ * language's native script (kana/hangul/etc.) large in the middle, its
+ * phonetic reading small below, plus TTS and favorite buttons. Replaces the
+ * old dual JA+KO layout — only the currently selected idioma de salida is
+ * ever shown, matching the main Traductor's language selector.
+ */
 @Composable
 private fun PhraseCard(
-    phrase: Phrase,
+    es: String,
+    native: NativeScript,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    onSpeakJapanese: () -> Unit,
-    onSpeakKorean: () -> Unit,
+    onSpeak: () -> Unit,
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
@@ -337,21 +383,24 @@ private fun PhraseCard(
         ),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Spanish (bold) + favorite star.
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Spanish — small, gray, top.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = phrase.es,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = es,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onToggleFavorite, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
@@ -360,92 +409,49 @@ private fun PhraseCard(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
 
-            Spacer(Modifier.size(12.dp))
+            Spacer(Modifier.size(10.dp))
 
-            // Balanced JA / KO row so both scripts are always visible,
-            // side by side on wide screens and stacked-safe on narrow ones
-            // (each block manages its own wrapping).
-            Row(
+            // Native script — big, centered, middle.
+            Text(
+                text = native.main,
+                style = MaterialTheme.typography.headlineSmall,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                lineHeight = 32.sp,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                ScriptBlock(
-                    label = "JA",
-                    mainText = phrase.ja.kana,
-                    subText = phrase.ja.romaji,
-                    accentColor = MaterialTheme.colorScheme.primary,
-                    onTap = onSpeakJapanese,
-                    modifier = Modifier.weight(1f),
-                )
-                ScriptBlock(
-                    label = "KO",
-                    mainText = phrase.ko.hangul,
-                    subText = phrase.ko.romanized,
-                    accentColor = MaterialTheme.colorScheme.secondary,
-                    onTap = onSpeakKorean,
-                    modifier = Modifier.weight(1f),
+            )
+
+            // Phonetic reading (romaji/romanized) — small, gray, below.
+            if (native.phonetic.isNotBlank()) {
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    text = native.phonetic,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
-    }
-}
 
-/**
- * One script block: big native text (kana or hangul) with a small gray
- * phonetic reading underneath. Tapping it speaks the native text aloud.
- */
-@Composable
-private fun ScriptBlock(
-    label: String,
-    mainText: String,
-    subText: String,
-    accentColor: androidx.compose.ui.graphics.Color,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        onClick = onTap,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        modifier = modifier,
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accentColor,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                )
+            Spacer(Modifier.size(10.dp))
+
+            // TTS button.
+            IconButton(onClick = onSpeak, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = "Escuchar",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Spacer(Modifier.size(4.dp))
-            Text(
-                text = mainText,
-                style = MaterialTheme.typography.titleLarge,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                lineHeight = 26.sp,
-            )
-            Spacer(Modifier.size(2.dp))
-            Text(
-                text = subText,
-                style = MaterialTheme.typography.bodySmall,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

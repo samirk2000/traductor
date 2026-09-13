@@ -1,6 +1,7 @@
 package com.arnold.voicetranslator.ui
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,7 +57,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val speechManager = SpeechRecognitionManager(application.applicationContext)
     private val ttsManager = TtsManager(application.applicationContext)
 
-    private val _uiState = MutableStateFlow(TranslatorUiState())
+    // ---- Language persistence -------------------------------------------
+    // Remembers the last chosen source/target languages across app restarts
+    // (SharedPreferences, same lightweight pattern used by the Fraseario
+    // module's favorites) so the app doesn't reset to the default ES->JA
+    // pair every time the user reopens it after picking, say, ES->KO.
+    private val languagePrefs = application.applicationContext
+        .getSharedPreferences(LANGUAGE_PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun loadSavedTargetLanguage(): TargetLanguage {
+        val savedId = languagePrefs.getString(KEY_TARGET_LANG, TargetLanguage.JAPANESE.id)
+        return TargetLanguage.entries.find { it.id == savedId } ?: TargetLanguage.JAPANESE
+    }
+
+    private fun persistTargetLanguage(target: TargetLanguage) {
+        languagePrefs.edit()
+            .putString(KEY_SOURCE_LANG, DEFAULT_SOURCE_LANG)
+            .putString(KEY_TARGET_LANG, target.id)
+            .apply()
+    }
+
+    private val _uiState = MutableStateFlow(TranslatorUiState(targetLanguage = loadSavedTargetLanguage()))
     val uiState: StateFlow<TranslatorUiState> = _uiState.asStateFlow()
 
     private var translateJob: Job? = null
@@ -72,6 +93,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var offlineVoiceRetryCount = 0
 
     init {
+        // Restore the persisted target language's TTS locale immediately so
+        // the very first speak-out after a fresh app launch already uses the
+        // remembered language, not the class-default (Japanese).
+        ttsManager.setLocale(localeFor(_uiState.value.targetLanguage))
         wireAudioCallbacks()
         checkInitialModelState()
 
@@ -712,6 +737,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(targetLanguage = target)
         ttsManager.setLocale(localeFor(target))
         refreshDownloadState()
+        persistTargetLanguage(target)
     }
 
     private fun startSpeakingSpanish() {
@@ -1194,5 +1220,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val SPEAK_FALLBACK_MILLIS = 15_000L
         /** Characters that only appear in Spanish, never in Hepburn romaji. */
         val SPANISH_ONLY_MARKERS = Regex("[áéíóúñÁÉÍÓÚÑ¿¡]")
+
+        /** SharedPreferences bucket persisting the chosen source/target languages. */
+        const val LANGUAGE_PREFS_NAME = "translator_language_prefs"
+        const val KEY_SOURCE_LANG = "source_lang"
+        const val KEY_TARGET_LANG = "target_lang"
+        /** Source is currently always Spanish (the app's only input language). */
+        const val DEFAULT_SOURCE_LANG = "es"
     }
 }

@@ -179,6 +179,10 @@ class MainActivity : ComponentActivity() {
 
                             AppTab.PHRASEBOOK -> PhrasebookScreen(
                                 modifier = Modifier.fillMaxSize(),
+                                // Same idioma de salida as the Traductor tab,
+                                // so the Fraseario always filters to the
+                                // currently selected language.
+                                targetLanguage = state.targetLanguage,
                             )
 
                             AppTab.SIMULATION -> {
