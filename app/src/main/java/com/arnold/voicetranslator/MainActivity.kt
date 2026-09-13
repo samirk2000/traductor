@@ -1225,6 +1225,7 @@ private fun ReplySuggestionCards(
 private fun imeHintLocaleFor(target: TargetLanguage): LocaleList = when (target) {
     TargetLanguage.JAPANESE -> LocaleList(Locale("ja"))
     TargetLanguage.KOREAN -> LocaleList(Locale("ko"))
+    TargetLanguage.CHINESE -> LocaleList(Locale("zh"))
     TargetLanguage.ENGLISH -> LocaleList(Locale("en"))
 }
 
@@ -1312,21 +1313,25 @@ private fun ConversationMicRow(
     val listenLabel = when (targetLanguage) {
         TargetLanguage.KOREAN -> "Escuchar Coreano"
         TargetLanguage.ENGLISH -> "Escuchar Inglés"
+        TargetLanguage.CHINESE -> "Escuchar Chino"
         TargetLanguage.JAPANESE -> "Escuchar Japonés"
     }
     val foreignLangName = when (targetLanguage) {
         TargetLanguage.KOREAN -> "coreano"
         TargetLanguage.ENGLISH -> "inglés"
+        TargetLanguage.CHINESE -> "chino"
         TargetLanguage.JAPANESE -> "japonés"
     }
     val foreignHeading = when (targetLanguage) {
         TargetLanguage.KOREAN -> "Escribir en coreano"
         TargetLanguage.ENGLISH -> "Escribir en inglés"
+        TargetLanguage.CHINESE -> "Escribir en chino"
         TargetLanguage.JAPANESE -> "Escribir en japonés"
     }
     val foreignHint = when (targetLanguage) {
         TargetLanguage.KOREAN -> "El reconocimiento de voz a veces falla. Escribe la frase en coreano (한글) o en fonética."
         TargetLanguage.ENGLISH -> "El reconocimiento de voz a veces falla. Escribe la frase en inglés."
+        TargetLanguage.CHINESE -> "El reconocimiento de voz a veces falla. Escribe la frase en chino (中文) o en pinyin."
         TargetLanguage.JAPANESE -> "El reconocimiento de voz a veces falla. Escribe la frase, sea en japonés (かな/漢字) o en romaji."
     }
 
@@ -1698,11 +1703,13 @@ private fun LiveConversationView(
     val foreignLabel = when (state.targetLanguage) {
         TargetLanguage.KOREAN -> "Coreano"
         TargetLanguage.ENGLISH -> "Inglés"
+        TargetLanguage.CHINESE -> "Chino"
         TargetLanguage.JAPANESE -> "Japonés"
     }
     val foreignHint = when (state.targetLanguage) {
         TargetLanguage.KOREAN -> "Escribe la frase en coreano (한글) o en fonética."
         TargetLanguage.ENGLISH -> "Escribe la frase en inglés."
+        TargetLanguage.CHINESE -> "Escribe la frase en chino (中文) o en pinyin."
         TargetLanguage.JAPANESE -> "Escribe la frase, sea en japonés (かな/漢字) o en romaji."
     }
 

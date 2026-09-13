@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,11 +69,16 @@ import java.util.Locale
 // Data model
 // ---------------------------------------------------------------------
 
-data class PhraseJa(val kana: String, val romaji: String)
-data class PhraseKo(val hangul: String, val romanized: String)
-/** Optional — the bundled JSON doesn't provide English data yet, so this is
- *  parsed defensively and simply absent (null) for every phrase today. */
-data class PhraseEn(val text: String, val romanized: String)
+data class PhraseJa(val kana: String, val phonetic: String)
+data class PhraseKo(val hangul: String, val phonetic: String)
+/** Chino — `hanzi` es el caracter nativo, `phonetic` es el pinyin. Parseado
+ *  defensivamente: si el JSON aún no trae "zh" para una frase, queda null. */
+data class PhraseZh(val hanzi: String, val phonetic: String)
+/** Optional — English has no phonetic reading of its own (it *is* the
+ *  target script), so there's no `phonetic` field here on purpose: showing
+ *  a second Latin-script line identical to the first was exactly the
+ *  "duplicado" bug in the Fraseario for Inglés. */
+data class PhraseEn(val text: String)
 
 data class Phrase(
     val id: String,
@@ -80,27 +86,41 @@ data class Phrase(
     val es: String,
     val ja: PhraseJa,
     val ko: PhraseKo,
+    val zh: PhraseZh? = null,
     val en: PhraseEn? = null,
 )
 
-/** One language's native script + phonetic reading + TTS locale, resolved
- *  from a [Phrase] for whichever [TargetLanguage] is currently active. */
-private data class NativeScript(val main: String, val phonetic: String, val locale: Locale)
+/**
+ * Native script (kana/hangul/hanzi/text) for the currently active
+ * [TargetLanguage] — the Fraseario shows exactly one language at a time
+ * (mirrors the main Traductor's idioma de salida) instead of mixing them.
+ */
+private fun nativeScriptFor(phrase: Phrase, target: TargetLanguage): String = when (target) {
+    TargetLanguage.JAPANESE -> phrase.ja.kana
+    TargetLanguage.KOREAN -> phrase.ko.hangul
+    TargetLanguage.CHINESE -> phrase.zh?.hanzi ?: phrase.es
+    TargetLanguage.ENGLISH -> phrase.en?.text ?: phrase.es
+}
 
 /**
- * Picks only the active target language's native script + phonetic reading
- * out of [phrase] — the Fraseario shows exactly one language at a time now
- * (mirrors the main Traductor's current idioma de salida), instead of always
- * mixing Japanese and Korean together.
+ * Phonetic reading for the currently active [TargetLanguage]: romaji for
+ * JA, romanizado for KO, pinyin for ZH, and always "" for EN (English has
+ * no separate phonetic script — this is what fixes the old duplicated
+ * line in the Inglés cards).
  */
-private fun nativeScriptFor(phrase: Phrase, target: TargetLanguage): NativeScript = when (target) {
-    TargetLanguage.JAPANESE -> NativeScript(phrase.ja.kana, phrase.ja.romaji, Locale.JAPAN)
-    TargetLanguage.KOREAN -> NativeScript(phrase.ko.hangul, phrase.ko.romanized, Locale.KOREA)
-    TargetLanguage.ENGLISH -> phrase.en?.let { NativeScript(it.text, it.romanized, Locale.ENGLISH) }
-        // No "en" data in phrasebook.json yet — fall back to the Spanish
-        // text itself (already Latin script, no romaji needed) instead of
-        // showing an empty card.
-        ?: NativeScript(phrase.es, "", Locale.ENGLISH)
+private fun phoneticFor(phrase: Phrase, target: TargetLanguage): String = when (target) {
+    TargetLanguage.JAPANESE -> phrase.ja.phonetic
+    TargetLanguage.KOREAN -> phrase.ko.phonetic
+    TargetLanguage.CHINESE -> phrase.zh?.phonetic ?: ""
+    TargetLanguage.ENGLISH -> ""
+}
+
+/** TTS locale for the currently active [TargetLanguage]. */
+private fun ttsLocaleFor(target: TargetLanguage): Locale = when (target) {
+    TargetLanguage.JAPANESE -> Locale.JAPAN
+    TargetLanguage.KOREAN -> Locale.KOREA
+    TargetLanguage.CHINESE -> Locale.CHINESE
+    TargetLanguage.ENGLISH -> Locale.ENGLISH
 }
 
 /** Ordered list of categories as they should appear in the filter chips. */
@@ -128,6 +148,10 @@ private fun loadPhrasebook(context: Context): List<Phrase> {
                 val obj = array.getJSONObject(i)
                 val jaObj = obj.getJSONObject("ja")
                 val koObj = obj.getJSONObject("ko")
+                // "zh" is optional/defensive: older phrasebook.json entries
+                // (or ones not yet updated by hand with pinyin) simply won't
+                // have it, and that must never crash the loader.
+                val zhObj = obj.optJSONObject("zh")
                 val enObj = obj.optJSONObject("en")
                 add(
                     Phrase(
@@ -136,16 +160,21 @@ private fun loadPhrasebook(context: Context): List<Phrase> {
                         es = obj.getString("es"),
                         ja = PhraseJa(
                             kana = jaObj.getString("kana"),
-                            romaji = jaObj.getString("romaji"),
+                            phonetic = jaObj.optString("romaji", ""),
                         ),
                         ko = PhraseKo(
                             hangul = koObj.getString("hangul"),
-                            romanized = koObj.getString("romanized"),
+                            phonetic = koObj.optString("romanized", ""),
                         ),
+                        zh = zhObj?.let {
+                            PhraseZh(
+                                hanzi = it.optString("hanzi", ""),
+                                phonetic = it.optString("pinyin", ""),
+                            )
+                        },
                         en = enObj?.let {
                             PhraseEn(
-                                text = it.getString("text"),
-                                romanized = it.optString("romanized", ""),
+                                text = it.optString("text", ""),
                             )
                         },
                     ),
@@ -344,12 +373,16 @@ fun PhrasebookScreen(
             ) {
                 items(filtered, key = { it.id }) { phrase ->
                     val native = nativeScriptFor(phrase, targetLanguage)
+                    val phonetic = phoneticFor(phrase, targetLanguage)
+                    val locale = ttsLocaleFor(targetLanguage)
                     PhraseCard(
                         es = phrase.es,
                         native = native,
+                        phonetic = phonetic,
+                        target = targetLanguage,
                         isFavorite = favorites.contains(phrase.id),
                         onToggleFavorite = { toggleFavorite(phrase.id) },
-                        onSpeak = { tts.speak(native.main, native.locale) },
+                        onSpeak = { tts.speak(native, locale) },
                     )
                 }
             }
@@ -363,15 +396,19 @@ fun PhrasebookScreen(
 
 /**
  * Single-language phrase card: Spanish small/gray on top, the active target
- * language's native script (kana/hangul/etc.) large in the middle, its
- * phonetic reading small below, plus TTS and favorite buttons. Replaces the
- * old dual JA+KO layout — only the currently selected idioma de salida is
- * ever shown, matching the main Traductor's language selector.
+ * language's native script (kana/hangul/hanzi/text) large in the middle,
+ * and — only when [target] isn't [TargetLanguage.ENGLISH] and [phonetic]
+ * isn't blank — its phonetic reading small italic below, plus TTS and
+ * favorite buttons. English has no separate phonetic script, so line 3 is
+ * skipped entirely for it; that's what fixes the old "duplicado" bug where
+ * Inglés showed the same text twice.
  */
 @Composable
 private fun PhraseCard(
     es: String,
-    native: NativeScript,
+    native: String,
+    phonetic: String,
+    target: TargetLanguage,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onSpeak: () -> Unit,
@@ -416,25 +453,29 @@ private fun PhraseCard(
 
             Spacer(Modifier.size(10.dp))
 
-            // Native script — big, centered, middle.
+            // Native script — big, bold, centered, middle.
             Text(
-                text = native.main,
+                text = native,
                 style = MaterialTheme.typography.headlineSmall,
                 fontSize = 26.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
                 lineHeight = 32.sp,
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // Phonetic reading (romaji/romanized) — small, gray, below.
-            if (native.phonetic.isNotBlank()) {
+            // Phonetic reading (romaji/romanizado/pinyin) — small, gray,
+            // italic, below. Never shown for English: EN's "native script"
+            // *is* the target text already, so a second identical-ish line
+            // was the duplicado bug this skip fixes.
+            if (target != TargetLanguage.ENGLISH && phonetic.isNotBlank()) {
                 Spacer(Modifier.size(4.dp))
                 Text(
-                    text = native.phonetic,
+                    text = phonetic,
                     style = MaterialTheme.typography.bodySmall,
                     fontSize = 13.sp,
+                    fontStyle = FontStyle.Italic,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),

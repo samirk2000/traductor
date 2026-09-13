@@ -751,6 +751,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             TargetLanguage.JAPANESE -> speechManager.listenInJapanese()
             TargetLanguage.KOREAN -> speechManager.listenInKorean()
             TargetLanguage.ENGLISH -> speechManager.listenInEnglish()
+            // No dedicated Chinese speech-recognition path yet in the main
+            // Traductor (Fraseario-only for now) — no-op fallback so the
+            // enum stays exhaustive without changing existing behavior.
+            TargetLanguage.CHINESE -> Unit
         }
         beginListening(isForeignSpeech = true)
     }
@@ -930,7 +934,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 phonetic.copy(nativeScript = hangul)
             }
-            TargetLanguage.JAPANESE, TargetLanguage.ENGLISH -> {
+            TargetLanguage.JAPANESE, TargetLanguage.ENGLISH, TargetLanguage.CHINESE -> {
                 val translated = workerApi.translate(text, target.id)
                 val mainTranslation = if (target == TargetLanguage.JAPANESE) {
                     val romaji = JapaneseRomajiConverter.kanjiToRomaji(translated)
@@ -1203,6 +1207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun localeFor(target: TargetLanguage): Locale = when (target) {
         TargetLanguage.JAPANESE -> Locale.JAPAN
         TargetLanguage.KOREAN -> Locale.KOREA
+        TargetLanguage.CHINESE -> Locale.CHINESE
         TargetLanguage.ENGLISH -> Locale.ENGLISH
     }
 

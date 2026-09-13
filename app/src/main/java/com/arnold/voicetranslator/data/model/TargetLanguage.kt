@@ -31,6 +31,13 @@ enum class TargetLanguage(
         mlKitModelTag = "ko",
         localeTag = "ko",
     ),
+    CHINESE(
+        id = "zh",
+        displayName = "Chino Pinyin",
+        flagEmoji = "🇨🇳",
+        mlKitModelTag = "zh",
+        localeTag = "zh",
+    ),
     ENGLISH(
         id = "en",
         displayName = "Inglés",

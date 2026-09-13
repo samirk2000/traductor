@@ -33,6 +33,7 @@ class MlKitOfflineTranslator {
         val targetCode = when (target) {
             TargetLanguage.JAPANESE -> TranslateLanguage.JAPANESE
             TargetLanguage.KOREAN -> TranslateLanguage.KOREAN
+            TargetLanguage.CHINESE -> TranslateLanguage.CHINESE
             TargetLanguage.ENGLISH -> TranslateLanguage.ENGLISH
         }
         val options = TranslatorOptions.Builder()
@@ -47,6 +48,7 @@ class MlKitOfflineTranslator {
         val languageCode = when (target) {
             TargetLanguage.JAPANESE -> TranslateLanguage.JAPANESE
             TargetLanguage.KOREAN -> TranslateLanguage.KOREAN
+            TargetLanguage.CHINESE -> TranslateLanguage.CHINESE
             TargetLanguage.ENGLISH -> TranslateLanguage.ENGLISH
         }
         return TranslateRemoteModel.Builder(languageCode).build()
@@ -185,6 +187,7 @@ object OfflineModelSize {
     fun approxMbFor(target: TargetLanguage): Int = when (target) {
         TargetLanguage.JAPANESE -> 30
         TargetLanguage.KOREAN -> 30
+        TargetLanguage.CHINESE -> 30
         TargetLanguage.ENGLISH -> 30
     }
 }
