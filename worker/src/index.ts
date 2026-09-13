@@ -1,7 +1,14 @@
 import { Context, Hono } from 'hono'
 import { checkAndIncrementRateLimit } from './ratelimit'
 import { translateWithGoogle, type GoogleTargetLang } from './providers/googleTranslate'
-import { callConverse, callExplain, callKoreanPhonetic } from './providers/deepseek'
+import {
+  callConverse,
+  callExplain,
+  callKoreanPhonetic,
+  callSimulate,
+  callSimulationFeedback,
+  type SimulateTurnDto,
+} from './providers/deepseek'
 
 type Bindings = {
   RATE_LIMIT_KV: KVNamespace
@@ -124,6 +131,65 @@ app.post('/explain', (c) =>
       return c.json(result)
     } catch (e) {
       console.error({ route: '/explain', status: 500, error: e instanceof Error ? e.message : String(e) })
+      return c.json({ error: 'internal_error' }, 500)
+    }
+  }),
+)
+
+/**
+ * POST /simulate
+ * Body: { scenario: string, language: "ja" | "ko", history?: {role, text}[], message: string }
+ * Standalone "Modo Simulación" — the AI roleplays as a native speaker inside
+ * the chosen scenario and always replies in the target language (never as a
+ * translator). Fully independent from /translate, /converse and /explain,
+ * which power Live Conversation / Subtitles / Fraseario and must stay untouched.
+ */
+app.post('/simulate', (c) =>
+  withRateLimit(c, async () => {
+    try {
+      const body = await c.req.json<{
+        scenario?: string
+        language?: string
+        history?: { role?: string; text?: string }[]
+        message?: string
+      }>()
+      const { scenario, language, message } = body
+      if (!scenario || !language || !message) {
+        return c.json({ error: 'missing_scenario_language_or_message' }, 400)
+      }
+      const history: SimulateTurnDto[] = (body.history ?? [])
+        .filter((turn) => !!turn.text)
+        .map((turn) => ({
+          role: turn.role === 'ai' ? 'ai' : 'user',
+          text: turn.text as string,
+        }))
+      const result = await callSimulate(c.env.DEEPSEEK_API_KEY, scenario, language, history, message)
+      return c.json(result)
+    } catch (e) {
+      console.error({ route: '/simulate', status: 500, error: e instanceof Error ? e.message : String(e) })
+      return c.json({ error: 'internal_error' }, 500)
+    }
+  }),
+)
+
+/**
+ * POST /simulate-feedback
+ * Body: { transcript: string }
+ * End-of-session level assessment for the "Terminar y dar feedback" button in
+ * Simulation Mode.
+ */
+app.post('/simulate-feedback', (c) =>
+  withRateLimit(c, async () => {
+    try {
+      const body = await c.req.json<{ transcript?: string }>()
+      const { transcript } = body
+      if (!transcript) {
+        return c.json({ error: 'missing_transcript' }, 400)
+      }
+      const result = await callSimulationFeedback(c.env.DEEPSEEK_API_KEY, transcript)
+      return c.json(result)
+    } catch (e) {
+      console.error({ route: '/simulate-feedback', status: 500, error: e instanceof Error ? e.message : String(e) })
       return c.json({ error: 'internal_error' }, 500)
     }
   }),

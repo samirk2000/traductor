@@ -125,6 +125,65 @@ class WorkerApiClient {
     }
 
     /**
+     * Calls POST /simulate on the Worker (DeepSeek under the hood). Used
+     * exclusively by the standalone Simulation Mode
+     * ([com.arnold.voicetranslator.simulation]): the AI roleplays as a native
+     * speaker of [language] inside [scenario] and replies fully in that
+     * language, given the last few turns of [history] and the user's new
+     * Spanish [message]. Fully independent from [translate]/[converse]
+     * above, which power Live Conversation / Subtitles / Fraseario.
+     */
+    suspend fun simulate(
+        scenario: String,
+        language: String,
+        history: List<SimulateTurnDto>,
+        message: String,
+    ): SimulateResponse {
+        require(message.isNotBlank()) { "Mensaje de entrada vacío" }
+
+        val rawText = postAndGetRawText("/simulate") {
+            client.post("$BASE_URL/simulate") {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    SimulateRequest(
+                        scenario = scenario,
+                        language = language,
+                        history = history,
+                        message = message,
+                    ),
+                )
+            }
+        }
+
+        return runCatching {
+            strictJson.decodeFromString<SimulateResponse>(rawText)
+        }.getOrNull() ?: throw WorkerApiException("Respuesta de simulación inválida.")
+    }
+
+    /**
+     * Calls POST /simulate-feedback on the Worker: analyzes the whole
+     * Simulation Mode conversation [transcript] and returns a short
+     * Spanish-language level assessment for the "Terminar y dar feedback"
+     * button.
+     */
+    suspend fun simulateFeedback(transcript: String): String {
+        require(transcript.isNotBlank()) { "Transcripción vacía" }
+
+        val rawText = postAndGetRawText("/simulate-feedback") {
+            client.post("$BASE_URL/simulate-feedback") {
+                contentType(ContentType.Application.Json)
+                setBody(SimulateFeedbackRequest(transcript = transcript))
+            }
+        }
+
+        val parsed = runCatching {
+            strictJson.decodeFromString<SimulateFeedbackResponse>(rawText)
+        }.getOrNull() ?: throw WorkerApiException("Respuesta de feedback inválida.")
+
+        return parsed.feedback
+    }
+
+    /**
      * Shared request/error-handling wrapper: runs [request], surfaces 429s and
      * non-2xx bodies as [WorkerApiException], and returns the raw response
      * body text for the caller to decode into its specific response shape.

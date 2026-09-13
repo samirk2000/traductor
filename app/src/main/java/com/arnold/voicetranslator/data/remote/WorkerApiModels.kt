@@ -68,3 +68,50 @@ data class ExplainResponse(
 data class WorkerErrorResponse(
     val error: String? = null,
 )
+
+// ===========================================================================
+// Simulation Mode ("Modo Simulación") — fully additive, used only by
+// com.arnold.voicetranslator.simulation.*. Does not affect /translate,
+// /translate-ko-phonetic, /converse or /explain (Live Conversation,
+// Subtitles, Fraseario), which stay untouched.
+// ===========================================================================
+
+/** One turn of prior context sent to POST /simulate (last 6 messages). */
+@Serializable
+data class SimulateTurnDto(
+    val role: String,
+    val text: String,
+)
+
+/** Body for POST /simulate against the Cloudflare Worker proxy. */
+@Serializable
+data class SimulateRequest(
+    val scenario: String,
+    val language: String,
+    val history: List<SimulateTurnDto> = emptyList(),
+    val message: String,
+)
+
+/**
+ * Response from POST /simulate: the AI's in-character reply, always fully in
+ * the target language ([native]), plus its Latin-script romanization and a
+ * short Spanish meaning.
+ */
+@Serializable
+data class SimulateResponse(
+    val native: String = "",
+    val romanized: String = "",
+    val spanish: String = "",
+)
+
+/** Body for POST /simulate-feedback. */
+@Serializable
+data class SimulateFeedbackRequest(
+    val transcript: String,
+)
+
+/** Response from POST /simulate-feedback: a short Spanish-language level assessment. */
+@Serializable
+data class SimulateFeedbackResponse(
+    val feedback: String = "",
+)
