@@ -15,7 +15,9 @@ import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
@@ -25,8 +27,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,6 +40,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -79,18 +86,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.intl.Locale
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.arnold.voicetranslator.data.model.ReplySuggestion
 import com.arnold.voicetranslator.data.model.TargetLanguage
+import com.arnold.voicetranslator.simulation.SimulationModeScreen
+import com.arnold.voicetranslator.simulation.SimulationViewModel
 import com.arnold.voicetranslator.ui.MainViewModel
+import com.arnold.voicetranslator.ui.phrasebook.PhrasebookScreen
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
 import com.arnold.voicetranslator.ui.state.ModelDownloadStatus
@@ -112,32 +128,69 @@ class MainActivity : ComponentActivity() {
         setContent {
             VoiceTranslatorTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
-                TranslatorScreen(
-                    state = state,
-                    onPermissionResult = viewModel::onPermissionResult,
-                    onSpeakSpanish = viewModel::onSpeakSpanishToggle,
-                    onListenJapanese = viewModel::onListenJapaneseToggle,
-                    onSelectLanguage = viewModel::onSelectLanguage,
-                    onToggleOffline = viewModel::onToggleOfflineMode,
-                    onDownloadModel = viewModel::onDownloadModel,
-                    onReplay = viewModel::onReplay,
-                    onSuggestionTapped = viewModel::onSuggestionTapped,
-                    onToggleSubtitles = viewModel::onToggleSubtitles,
-                    onClearHistory = viewModel::onClearHistory,
-                    onToggleAutoSpeak = viewModel::onToggleAutoSpeak,
-                    onTranslateSpanishText = viewModel::onTranslateSpanishText,
-                    onToggleShowKana = viewModel::onToggleShowKana,
-                    onTranslateJapaneseText = viewModel::onTranslateJapaneseText,
-                    onToggleLiveConversation = viewModel::onToggleLiveConversation,
-                    onLiveSpeakSpanish = viewModel::onLiveSpeakSpanish,
-                    onLiveSuggestionTapped = viewModel::onLiveSuggestionTapped,
-                    onToggleLiveListeningPause = viewModel::onToggleLiveListeningPause,
-                    onDownloadOfflineModelFor = viewModel::downloadOfflineModelFor,
-                    onRefreshOfflineModels = viewModel::refreshAllOfflineModelStates,
-                    onConfirmDownloadMissingModel = viewModel::onConfirmDownloadMissingModel,
-                    onDismissMissingModelPrompt = viewModel::onDismissMissingModelPrompt,
-                    onDismissVoiceOfflineGuidance = viewModel::onDismissVoiceOfflineGuidance,
-                )
+
+                // Top-level tab switcher: "Traductor" (existing en vivo /
+                // subtítulos flow, untouched below) vs the new, fully
+                // independent "Fraseario" module. This wrapper only decides
+                // WHICH screen is drawn — it does not alter TranslatorScreen
+                // or any of its internal logic.
+                var selectedTab by remember { mutableStateOf(AppTab.TRANSLATOR) }
+
+                // Consume the status-bar inset here (once) so it isn't
+                // applied a second time by TranslatorScreen's own internal
+                // `.statusBarsPadding()` call below — keeps the existing
+                // "en vivo"/"subtítulos" layout pixel-identical to before.
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .consumeWindowInsets(WindowInsets.statusBars),
+                ) {
+                    AppTabBar(selected = selectedTab, onSelect = { selectedTab = it })
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (selectedTab) {
+                            AppTab.TRANSLATOR -> TranslatorScreen(
+                                state = state,
+                                onPermissionResult = viewModel::onPermissionResult,
+                                onSpeakSpanish = viewModel::onSpeakSpanishToggle,
+                                onListenJapanese = viewModel::onListenJapaneseToggle,
+                                onSelectLanguage = viewModel::onSelectLanguage,
+                                onToggleOffline = viewModel::onToggleOfflineMode,
+                                onDownloadModel = viewModel::onDownloadModel,
+                                onReplay = viewModel::onReplay,
+                                onSuggestionTapped = viewModel::onSuggestionTapped,
+                                onToggleSubtitles = viewModel::onToggleSubtitles,
+                                onClearHistory = viewModel::onClearHistory,
+                                onToggleAutoSpeak = viewModel::onToggleAutoSpeak,
+                                onTranslateSpanishText = viewModel::onTranslateSpanishText,
+                                onToggleShowKana = viewModel::onToggleShowKana,
+                                onTranslateJapaneseText = viewModel::onTranslateJapaneseText,
+                                onToggleLiveConversation = viewModel::onToggleLiveConversation,
+                                onLiveSpeakSpanish = viewModel::onLiveSpeakSpanish,
+                                onLiveSuggestionTapped = viewModel::onLiveSuggestionTapped,
+                                onToggleLiveListeningPause = viewModel::onToggleLiveListeningPause,
+                                onDownloadOfflineModelFor = viewModel::downloadOfflineModelFor,
+                                onRefreshOfflineModels = viewModel::refreshAllOfflineModelStates,
+                                onConfirmDownloadMissingModel = viewModel::onConfirmDownloadMissingModel,
+                                onDismissMissingModelPrompt = viewModel::onDismissMissingModelPrompt,
+                                onDismissVoiceOfflineGuidance = viewModel::onDismissVoiceOfflineGuidance,
+                            )
+
+                            AppTab.PHRASEBOOK -> PhrasebookScreen(
+                                modifier = Modifier.fillMaxSize(),
+                            )
+
+                            AppTab.SIMULATION -> {
+                                val simulationViewModel: SimulationViewModel = viewModel()
+                                SimulationModeScreen(
+                                    viewModel = simulationViewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -172,6 +225,51 @@ fun VoiceTranslatorTheme(content: @Composable () -> Unit) {
         colorScheme = DarkColorScheme,
         content = content,
     )
+}
+
+// ===========================================================================
+// Top-level app tabs (new "Fraseario" module lives alongside, never inside,
+// the existing Traductor/En vivo/Subtítulos flow below).
+// ===========================================================================
+
+private enum class AppTab(val label: String) {
+    TRANSLATOR("Traductor"),
+    PHRASEBOOK("Fraseario"),
+    SIMULATION("Modo Simulación"),
+}
+
+@Composable
+private fun AppTabBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AppTab.entries.forEach { tab ->
+            val isSelected = tab == selected
+            FilledTonalButton(
+                onClick = { onSelect(tab) },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    },
+                    contentColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                ),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(tab.label, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
 }
 
 // ===========================================================================
@@ -307,6 +405,8 @@ private fun TranslatorScreen(
                     onLiveSpeakSpanish = onLiveSpeakSpanish,
                     onLiveSuggestionTapped = onLiveSuggestionTapped,
                     onToggleLiveListeningPause = onToggleLiveListeningPause,
+                    onTranslateSpanishText = onTranslateSpanishText,
+                    onTranslateForeignText = onTranslateJapaneseText,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -354,8 +454,10 @@ private fun TranslatorScreen(
         // "Anime Subtitles" fullscreen overlay, drawn on top of the standard UI.
         if (state.isSubtitlesMode) {
             SubtitlesOverlay(
-                result = state.result?.mainTranslation,
-                romaji = state.sourceRomaji ?: state.sourceText,
+                history = state.historyList,
+                pendingResult = state.result?.mainTranslation,
+                pendingRomaji = state.sourceRomaji ?: state.sourceText,
+                isTranslating = state.isTranslating,
                 onExit = onToggleSubtitles,
             )
         }
@@ -854,6 +956,28 @@ private fun TranslationDisplay(
                         modifier = Modifier.fillMaxWidth(),
                     )
 
+                    // Spanish -> foreign direction: also show the native
+                    // script (kana/kanji for Japanese, Hangul for Korean)
+                    // right below the Romaji/phonetic reading, gated by the
+                    // "Mostrar japonés (kana)" / "Mostrar coreano (hangul)"
+                    // toggle — same script the local speaker would actually
+                    // read, instead of only the Spanish-friendly reading.
+                    if (!state.isListeningForeign && state.isShowKana) {
+                        result.nativeScript
+                            ?.takeIf { it.isNotBlank() && it != result.mainTranslation }
+                            ?.let { native ->
+                                Spacer(Modifier.size(6.dp))
+                                Text(
+                                    text = native,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                    }
+
                     if (state.isListeningForeign) {
                         val structured = result.replySuggestions
                         if (structured.isNotEmpty()) {
@@ -1029,8 +1153,9 @@ private fun ReplySuggestionCards(
         // constraints. Cards simply stack and the parent scroll handles overflow.
         Column(modifier = Modifier.fillMaxWidth()) {
             suggestions.forEach { suggestion ->
+                val tapKey = suggestion.romaji.ifBlank { suggestion.kana.ifBlank { suggestion.spanish } }
                 Surface(
-                    onClick = { onSuggestionTapped(suggestion.romaji) },
+                    onClick = { onSuggestionTapped(tapKey) },
                     enabled = enabled,
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -1056,14 +1181,22 @@ private fun ReplySuggestionCards(
                             )
                             Spacer(Modifier.size(2.dp))
                         }
-                        Text(
-                            text = suggestion.romaji,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        if (suggestion.spanish.isNotBlank()) {
+                        // Only show the romaji line if non-blank and actually
+                        // distinct from the Spanish meaning below — avoids
+                        // the "both show Spanish" bug when the model put the
+                        // wrong content in the romaji slot.
+                        if (suggestion.romaji.isNotBlank() &&
+                            !suggestion.romaji.trim().equals(suggestion.spanish.trim(), ignoreCase = true)
+                        ) {
+                            Text(
+                                text = suggestion.romaji,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
                             Spacer(Modifier.size(2.dp))
+                        }
+                        if (suggestion.spanish.isNotBlank()) {
                             Text(
                                 text = suggestion.spanish,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -1080,6 +1213,72 @@ private fun ReplySuggestionCards(
 // ===========================================================================
 // Two-way microphone row
 // ===========================================================================
+
+/** IME "hint locale" per target language, so multilingual keyboards (Gboard,
+ *  etc.) auto-switch to the right language/script (kana for Japanese, hangul
+ *  for Korean) as soon as the field is focused, instead of defaulting to
+ *  whatever layout was last used. */
+private fun imeHintLocaleFor(target: TargetLanguage): LocaleList = when (target) {
+    TargetLanguage.JAPANESE -> LocaleList(Locale("ja"))
+    TargetLanguage.KOREAN -> LocaleList(Locale("ko"))
+    TargetLanguage.ENGLISH -> LocaleList(Locale("en"))
+}
+
+private val SPANISH_IME_HINT = LocaleList(Locale("es"))
+
+/**
+ * A single "type it instead of speaking" dialog: auto-focuses its text field
+ * and opens the keyboard immediately (no extra tap needed), and hints the
+ * IME to switch to [hintLocale]'s language/script right away.
+ */
+@Composable
+private fun TypingDialog(
+    title: String,
+    hint: String,
+    label: String,
+    hintLocale: LocaleList,
+    typedText: String,
+    onTypedTextChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(12.dp))
+                OutlinedTextField(
+                    value = typedText,
+                    onValueChange = onTypedTextChange,
+                    label = { Text(label) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                    singleLine = false,
+                    keyboardOptions = KeyboardOptions(hintLocales = hintLocale),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Traducir") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
+}
 
 /**
  * Pair of mic buttons for the Two-Way Conversation:
@@ -1186,79 +1385,33 @@ private fun ConversationMicRow(
         }
 
         if (showSpanishDialog) {
-            AlertDialog(
-                onDismissRequest = { showSpanishDialog = false },
-                title = { Text("Escribir en español") },
-                text = {
-                    Column {
-                        Text(
-                            "El reconocimiento de voz a veces falla. Escribe la frase que quieres traducir.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.size(12.dp))
-                        OutlinedTextField(
-                            value = typedText,
-                            onValueChange = { typedText = it },
-                            label = { Text("Frase en español") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = false,
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showSpanishDialog = false
-                            onTranslateSpanishText(typedText)
-                        },
-                    ) {
-                        Text("Traducir")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showSpanishDialog = false }) {
-                        Text("Cancelar")
-                    }
+            TypingDialog(
+                title = "Escribir en español",
+                hint = "El reconocimiento de voz a veces falla. Escribe la frase que quieres traducir.",
+                label = "Frase en español",
+                hintLocale = SPANISH_IME_HINT,
+                typedText = typedText,
+                onTypedTextChange = { typedText = it },
+                onDismiss = { showSpanishDialog = false },
+                onConfirm = {
+                    showSpanishDialog = false
+                    onTranslateSpanishText(typedText)
                 },
             )
         }
 
         if (showForeignDialog) {
-            AlertDialog(
-                onDismissRequest = { showForeignDialog = false },
-                title = { Text(foreignHeading) },
-                text = {
-                    Column {
-                        Text(
-                            foreignHint,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.size(12.dp))
-                        OutlinedTextField(
-                            value = typedText,
-                            onValueChange = { typedText = it },
-                            label = { Text("Frase en $foreignLangName") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = false,
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showForeignDialog = false
-                            onTranslateJapaneseText(typedText)
-                        },
-                    ) {
-                        Text("Traducir")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showForeignDialog = false }) {
-                        Text("Cancelar")
-                    }
+            TypingDialog(
+                title = foreignHeading,
+                hint = foreignHint,
+                label = "Frase en $foreignLangName",
+                hintLocale = imeHintLocaleFor(targetLanguage),
+                typedText = typedText,
+                onTypedTextChange = { typedText = it },
+                onDismiss = { showForeignDialog = false },
+                onConfirm = {
+                    showForeignDialog = false
+                    onTranslateJapaneseText(typedText)
                 },
             )
         }
@@ -1389,16 +1542,33 @@ private fun HistoryRow(item: TranslationHistoryItem) {
 // ===========================================================================
 
 /**
- * Immersive dark overlay that mimics anime subtitles: the Mexican Spanish
- * translation in large bold white/yellow text, with the Romaji reading in
- * smaller gray text below, inside a semi-transparent banner at the bottom.
+ * Immersive dark overlay that mimics anime subtitles: a growing scrolling log
+ * of every translation said so far (so people don't lose the thread of the
+ * conversation), auto-scrolled to the newest line at the bottom. The most
+ * recent line is shown large/bright like a live subtitle; earlier lines
+ * scroll up, dimmer, as a running transcript.
  */
 @Composable
 private fun SubtitlesOverlay(
-    result: String?,
-    romaji: String?,
+    history: List<TranslationHistoryItem>,
+    pendingResult: String?,
+    pendingRomaji: String?,
+    isTranslating: Boolean,
     onExit: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    // historyList already includes the latest completed translation the
+    // instant it lands (added in the same state update as `result`), so
+    // showing history + the in-flight pending item would duplicate the last
+    // line. Only show a "…" placeholder while a translation is still running.
+    val itemCount = history.size + if (isTranslating) 1 else 0
+
+    LaunchedEffect(itemCount) {
+        if (itemCount > 0) {
+            listState.animateScrollToItem(itemCount - 1)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1420,37 +1590,74 @@ private fun SubtitlesOverlay(
             )
         }
 
-        // Bottom subtitle banner
+        // Growing subtitle log, bottom-aligned, newest line largest/brightest.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .heightIn(max = 420.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color.Black.copy(alpha = 0.65f))
                 .padding(horizontal = 20.dp, vertical = 18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = result ?: "…",
-                style = MaterialTheme.typography.titleLarge,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFFFE066), // anime-style yellow
-                textAlign = TextAlign.Center,
-                lineHeight = 34.sp,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (romaji != null && romaji.isNotBlank()) {
-                Spacer(Modifier.size(8.dp))
+            if (history.isEmpty() && !isTranslating) {
                 Text(
-                    text = romaji,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontSize = 18.sp,
-                    color = Color(0xFFB0B6C0), // gray
+                    text = "…",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFFE066),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    itemsIndexed(history, key = { index, _ -> index }) { index, item ->
+                        val isLatest = index == history.lastIndex && !isTranslating
+                        SubtitleLine(
+                            text = item.translation,
+                            romaji = item.sourceRomaji?.takeIf { it != item.sourceText } ?: item.sourceText,
+                            emphasized = isLatest,
+                        )
+                    }
+                    if (isTranslating) {
+                        item(key = "pending") {
+                            SubtitleLine(text = "…", romaji = pendingRomaji, emphasized = true)
+                        }
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun SubtitleLine(text: String, romaji: String?, emphasized: Boolean) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleLarge,
+            fontSize = if (emphasized) 26.sp else 19.sp,
+            fontWeight = if (emphasized) FontWeight.Bold else FontWeight.SemiBold,
+            color = if (emphasized) Color(0xFFFFE066) else Color(0xFFFFE066).copy(alpha = 0.55f),
+            textAlign = TextAlign.Center,
+            lineHeight = if (emphasized) 34.sp else 26.sp,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (!romaji.isNullOrBlank()) {
+            Spacer(Modifier.size(4.dp))
+            Text(
+                text = romaji,
+                style = MaterialTheme.typography.titleMedium,
+                fontSize = if (emphasized) 18.sp else 14.sp,
+                color = Color(0xFFB0B6C0).copy(alpha = if (emphasized) 1f else 0.55f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -1472,14 +1679,30 @@ private fun LiveConversationView(
     onLiveSpeakSpanish: () -> Unit,
     onLiveSuggestionTapped: (String) -> Unit,
     onToggleLiveListeningPause: () -> Unit,
+    onTranslateSpanishText: (String) -> Unit,
+    onTranslateForeignText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showSpanishDialog by remember { mutableStateOf(false) }
+    var showForeignDialog by remember { mutableStateOf(false) }
+    var typedText by remember { mutableStateOf("") }
+    // Lets the user hide the (sometimes wrong, since STT can mishear what
+    // was said) reply suggestion cards without needing to wait for them to
+    // disappear on their own — a manual escape hatch for bad suggestions.
+    var suggestionsHidden by remember { mutableStateOf(false) }
+
+    val foreignLabel = when (state.targetLanguage) {
+        TargetLanguage.KOREAN -> "Coreano"
+        TargetLanguage.ENGLISH -> "Inglés"
+        TargetLanguage.JAPANESE -> "Japonés"
+    }
+    val foreignHint = when (state.targetLanguage) {
+        TargetLanguage.KOREAN -> "Escribe la frase en coreano (한글) o en fonética."
+        TargetLanguage.ENGLISH -> "Escribe la frase en inglés."
+        TargetLanguage.JAPANESE -> "Escribe la frase, sea en japonés (かな/漢字) o en romaji."
+    }
+
     Column(modifier = modifier) {
-        val foreignLabel = when (state.targetLanguage) {
-            TargetLanguage.KOREAN -> "Coreano"
-            TargetLanguage.ENGLISH -> "Inglés"
-            TargetLanguage.JAPANESE -> "Japonés"
-        }
 
         // Turn indicator
         val turnText = when {
@@ -1614,20 +1837,88 @@ private fun LiveConversationView(
         // Suggested replies for the ELLOS turn
         val suggestions = state.result?.replySuggestions
         if (state.liveTurn == LiveTurn.THEM && suggestions?.isNotEmpty() == true) {
-            LiveSuggestionCards(
-                suggestions = suggestions,
-                showKana = state.isShowKana,
-                onSuggestionTapped = onLiveSuggestionTapped,
-                enabled = !state.isSpeaking,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Sugerencias de respuesta",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = { suggestionsHidden = !suggestionsHidden }) {
+                    Text(
+                        if (suggestionsHidden) "Mostrar" else "Ocultar",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+            if (!suggestionsHidden) {
+                LiveSuggestionCards(
+                    suggestions = suggestions,
+                    showKana = state.isShowKana,
+                    onSuggestionTapped = onLiveSuggestionTapped,
+                    enabled = !state.isSpeaking,
+                )
+            }
             Spacer(Modifier.size(12.dp))
         }
 
-        // Speak Spanish (TÚ) mic button
+        // Speak Spanish (TÚ) mic button + manual text-input fallbacks, for
+        // when the other person would rather grab the phone and type than
+        // rely on speech recognition (mishears, noisy environment, etc.).
         LiveMicBar(
             isListening = state.isListening && state.liveTurn == LiveTurn.YOU,
             busy = state.isTranslating || state.isSpeaking,
             onSpeakSpanish = onLiveSpeakSpanish,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            TextButton(onClick = { typedText = ""; showSpanishDialog = true }) {
+                Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Escribir en español", style = MaterialTheme.typography.labelSmall)
+            }
+            TextButton(onClick = { typedText = ""; showForeignDialog = true }) {
+                Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Escribir en $foreignLabel", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+
+    if (showSpanishDialog) {
+        TypingDialog(
+            title = "Escribir en español",
+            hint = "Útil cuando la otra persona prefiere escribir en tu celular en vez de hablar.",
+            label = "Frase en español",
+            hintLocale = SPANISH_IME_HINT,
+            typedText = typedText,
+            onTypedTextChange = { typedText = it },
+            onDismiss = { showSpanishDialog = false },
+            onConfirm = {
+                showSpanishDialog = false
+                onTranslateSpanishText(typedText)
+            },
+        )
+    }
+
+    if (showForeignDialog) {
+        TypingDialog(
+            title = "Escribir en $foreignLabel",
+            hint = foreignHint,
+            label = "Frase en $foreignLabel",
+            hintLocale = imeHintLocaleFor(state.targetLanguage),
+            typedText = typedText,
+            onTypedTextChange = { typedText = it },
+            onDismiss = { showForeignDialog = false },
+            onConfirm = {
+                showForeignDialog = false
+                onTranslateForeignText(typedText)
+            },
         )
     }
 }
@@ -1723,8 +2014,13 @@ private fun LiveSuggestionCards(
     enabled: Boolean,
 ) {
     suggestions.take(3).forEach { suggestion ->
+        // Defensive fallback in the UI too: if the romaji field ended up
+        // blank (the ViewModel couldn't regenerate a valid Latin-script
+        // reading), never leave the card with nothing tappable/speakable —
+        // fall back to the kana/native script, then the Spanish meaning.
+        val tapKey = suggestion.romaji.ifBlank { suggestion.kana.ifBlank { suggestion.spanish } }
         Surface(
-            onClick = { onSuggestionTapped(suggestion.romaji) },
+            onClick = { onSuggestionTapped(tapKey) },
             enabled = enabled,
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -1746,14 +2042,23 @@ private fun LiveSuggestionCards(
                     )
                     Spacer(Modifier.size(2.dp))
                 }
-                Text(
-                    suggestion.romaji,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                if (suggestion.spanish.isNotBlank()) {
+                // Only show the romaji line if it's non-blank and actually
+                // distinct from the Spanish meaning below — otherwise it's
+                // the "both cards show Spanish" bug (romaji slot ended up
+                // wrong/duplicated), and showing it would just repeat the
+                // Spanish text twice.
+                if (suggestion.romaji.isNotBlank() &&
+                    !suggestion.romaji.trim().equals(suggestion.spanish.trim(), ignoreCase = true)
+                ) {
+                    Text(
+                        suggestion.romaji,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     Spacer(Modifier.size(2.dp))
+                }
+                if (suggestion.spanish.isNotBlank()) {
                     Text(
                         suggestion.spanish,
                         style = MaterialTheme.typography.bodyMedium,

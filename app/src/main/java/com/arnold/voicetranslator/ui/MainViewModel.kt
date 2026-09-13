@@ -21,6 +21,7 @@ import com.arnold.voicetranslator.ui.state.OfflineModelInfo
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
 import com.arnold.voicetranslator.util.JapaneseRomajiConverter
+import com.arnold.voicetranslator.util.SpanishQuestionCorrector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -770,6 +771,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         targetLang: TargetLanguage,
         isForeignSpeech: Boolean,
     ) {
+        // The user's own Spanish speech (never the foreign speaker's) goes
+        // through a question corrector first: STT frequently drops accents
+        // and question marks ("como estas" instead of "¿Cómo estás?"), which
+        // then translates literally/wrong. Reconstruct it as a proper
+        // question before it ever reaches the translator.
+        val correctedText = if (!isForeignSpeech) {
+            SpanishQuestionCorrector.correct(text)
+        } else {
+            text
+        }
+        if (correctedText != text) {
+            Log.d(TAG, "translate: Spanish question corrector: \"$text\" -> \"$correctedText\"")
+        }
+        val text = correctedText
         lastSpeechText = text
         val currentTarget = targetLang
         Log.d(TAG, "translate: text=\"$text\" target=$currentTarget isForeignSpeech=$isForeignSpeech offline=${_uiState.value.isOfflineMode}")
@@ -866,7 +881,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private suspend fun onlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         when (target) {
-            TargetLanguage.KOREAN -> workerApi.translateKoreanPhonetic(text)
+            TargetLanguage.KOREAN -> {
+                val phonetic = workerApi.translateKoreanPhonetic(text)
+                // /translate-ko-phonetic only returns a Spanish-readable
+                // transliteration (e.g. "annyeonghaseyo"), never the actual
+                // Hangul. Fetch that separately via the plain /translate
+                // route (Google Translate, target=ko) so a native Korean
+                // speaker can also read the real script — same UX as
+                // Japanese's kana/kanji companion. Only bothered when the
+                // "Mostrar coreano (hangul)" toggle is on, to avoid burning
+                // an extra call (and daily quota) against the Worker when
+                // the user doesn't want it. Best-effort: a failure here
+                // (network hiccup, rate limit) must never break the primary
+                // phonetic translation the user is waiting for.
+                val hangul = if (_uiState.value.isShowKana) {
+                    runCatching { workerApi.translate(text, target.id) }
+                        .onFailure { Log.w(TAG, "onlineTranslate: Korean Hangul fetch failed", it) }
+                        .getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                } else {
+                    null
+                }
+                phonetic.copy(nativeScript = hangul)
+            }
             TargetLanguage.JAPANESE, TargetLanguage.ENGLISH -> {
                 val translated = workerApi.translate(text, target.id)
                 val mainTranslation = if (target == TargetLanguage.JAPANESE) {
@@ -902,18 +939,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): TranslationResult {
         val result = workerApi.converse(text, foreignLang.id)
         if (foreignLang != TargetLanguage.JAPANESE) return result
-        // Defensive guard: DeepSeek's /converse occasionally leaks raw
-        // kana/kanji into a suggestion's "romaji" field instead of an actual
-        // Latin-script transliteration ("se bugea" — kana shows where romaji
-        // should be). Detect Japanese script and re-romanize via Kuromoji so
-        // the romaji slot is always guaranteed to be Latin text.
+        // Defensive guard: DeepSeek's /converse occasionally messes up a
+        // suggestion's "romaji" field two different ways instead of an actual
+        // Latin-script transliteration: (a) leaking raw kana/kanji into it
+        // ("se bugea" — kana shows where romaji should be), or (b) just
+        // duplicating the Spanish meaning into it (the exact bug reported:
+        // suggestions show Spanish twice — no romaji reading — when spoken to
+        // in Japanese). Detect both cases and re-romanize from the "kana"
+        // field (which per the prompt always holds the real native script)
+        // via Kuromoji, so the romaji slot is always guaranteed to hold an
+        // actual Latin-script Japanese reading.
         return result.copy(
             replySuggestions = result.replySuggestions.map { suggestion ->
-                val fixedRomaji = sanitizeJapaneseRomaji(suggestion.romaji)
+                val fixedRomaji = sanitizeJapaneseRomaji(suggestion)
                 if (fixedRomaji != suggestion.romaji) {
                     Log.d(
                         TAG,
-                        "JA_ROMAJI_DEBUG conversationTranslate: fixed leaked kana in suggestion romaji: " +
+                        "JA_ROMAJI_DEBUG conversationTranslate: fixed bad suggestion romaji: " +
                             "\"${suggestion.romaji}\" -> \"$fixedRomaji\"",
                     )
                 }
@@ -927,12 +969,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         text.any { ch -> ch in '\u3040'..'\u30FF' || ch in '\u4E00'..'\u9FFF' }
 
     /**
-     * Ensures a "romaji" string is actually Latin-script romaji. If it
-     * contains kana/kanji (a leaked model mistake), re-romanizes it via
-     * [JapaneseRomajiConverter]; otherwise returns it unchanged.
+     * Ensures a reply suggestion's "romaji" field is actually a Latin-script
+     * Japanese reading, not kana/kanji leaked in, and not just the Spanish
+     * meaning duplicated into it. If either bad case is detected, re-derives
+     * the romaji from the "kana" field (the real native-script reply) via
+     * [JapaneseRomajiConverter]; otherwise returns the romaji unchanged.
      */
-    private fun sanitizeJapaneseRomaji(text: String): String =
-        if (containsJapaneseScript(text)) JapaneseRomajiConverter.kanjiToRomaji(text) else text
+    private fun sanitizeJapaneseRomaji(suggestion: com.arnold.voicetranslator.data.model.ReplySuggestion): String {
+        val romaji = suggestion.romaji
+        val looksLikeLeakedKana = containsJapaneseScript(romaji)
+        // True romaji (Hepburn) is plain ASCII: no ñ/á/é/í/ó/ú/¿/¡. If the
+        // "romaji" field contains any of those, the model put real Spanish
+        // there instead of a phonetic reading — the exact bug reported
+        // ("siguen saliendo ambas opciones en español"). Checking for these
+        // markers (rather than only an exact string match against
+        // `spanish`) also catches cases where the model paraphrased instead
+        // of copying verbatim.
+        val looksLikeSpanish = romaji.isNotBlank() && (
+            SPANISH_ONLY_MARKERS.containsMatchIn(romaji) ||
+                (suggestion.spanish.isNotBlank() && romaji.trim().equals(suggestion.spanish.trim(), ignoreCase = true))
+            )
+        if (!looksLikeLeakedKana && !looksLikeSpanish) return romaji
+
+        return when {
+            containsJapaneseScript(suggestion.kana) -> JapaneseRomajiConverter.kanjiToRomaji(suggestion.kana)
+            looksLikeLeakedKana -> JapaneseRomajiConverter.kanjiToRomaji(romaji)
+            // Nothing native-script to romanize from — blank it out instead
+            // of showing the wrong Spanish text a second time; the UI falls
+            // back to showing just the Spanish meaning in that case.
+            else -> ""
+        }
+    }
 
     private suspend fun offlineTranslate(text: String, target: TargetLanguage): TranslationResult =
         offlineTranslator.translate(text, target)
@@ -971,10 +1038,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             null
                         },
-                        // TÚ turn translated into Japanese: also carry the
-                        // native kana/kanji script so it can be shown next to
-                        // the Romaji for a native speaker to read.
-                        translationKana = if (!isForeignSpeech && target == TargetLanguage.JAPANESE) {
+                        // TÚ turn translated into Japanese or Korean: also
+                        // carry the native script (kana/kanji or Hangul) so
+                        // it can be shown next to the Romaji/phonetic reading
+                        // for a native speaker to read.
+                        translationKana = if (!isForeignSpeech &&
+                            (target == TargetLanguage.JAPANESE || target == TargetLanguage.KOREAN)
+                        ) {
                             result.nativeScript?.takeIf { kana -> kana != result.mainTranslation }
                         } else {
                             null
@@ -1122,5 +1192,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** Max consecutive auto-retries when the offline voice pack is missing. */
         const val MAX_OFFLINE_VOICE_RETRIES = 5
         const val SPEAK_FALLBACK_MILLIS = 15_000L
+        /** Characters that only appear in Spanish, never in Hepburn romaji. */
+        val SPANISH_ONLY_MARKERS = Regex("[áéíóúñÁÉÍÓÚÑ¿¡]")
     }
 }

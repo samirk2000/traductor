@@ -1,0 +1,11 @@
+node_modules
+worker/node_modules
+/app/build
+/build
+/.gradle
+/.idea
+dist
+.next
+captures
+*.log
+.env
