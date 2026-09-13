@@ -95,13 +95,18 @@ data class SimulateRequest(
 /**
  * Response from POST /simulate: the AI's in-character reply, always fully in
  * the target language ([native]), plus its Latin-script romanization and a
- * short Spanish meaning.
+ * short Spanish meaning. [userRomanized]/[userSpanish] are the romanization
+ * and Spanish translation of the *user's own* last message (computed
+ * server-side in the same DeepSeek call) — used to fill in the user's own
+ * chat bubble, which previously showed only the raw target-language text.
  */
 @Serializable
 data class SimulateResponse(
     val native: String = "",
     val romanized: String = "",
     val spanish: String = "",
+    val userRomanized: String = "",
+    val userSpanish: String = "",
 )
 
 /** Body for POST /simulate-feedback. */

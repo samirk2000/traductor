@@ -41,12 +41,21 @@ const SCENARIO_LABELS: Record<string, string> = {
 const LANGUAGE_LABELS: Record<string, string> = {
   ja: 'japonés',
   ko: 'coreano',
+  zh: 'chino (mandarín)',
+  en: 'inglés',
 }
 
 function systemSimulate(scenario: string, language: string): string {
   const scenarioLabel = SCENARIO_LABELS[scenario] ?? scenario
   const languageLabel = LANGUAGE_LABELS[language] ?? language
-  return `Eres un hablante nativo de ${languageLabel} actuando en este escenario de la vida real: ${scenarioLabel}. Debes actuar SIEMPRE como ese personaje, nunca como traductor ni asistente de IA, y nunca cambies de idioma. Responde ÚNICAMENTE en ${languageLabel} (en su escritura nativa), de forma breve (1-2 frases), natural y coherente con el escenario y el historial reciente de la conversación (el usuario te habla en español, tú siempre respondes en ${languageLabel} como si lo entendieras perfectamente). Después entrega también: la romanización/lectura fonética latina de tu respuesta, y su traducción breve al español. Devuelve SOLO un objeto JSON, sin texto ni comillas adicionales, con este formato exacto: {"native": "tu respuesta en la escritura nativa del idioma (kana/kanji para japonés, hangul para coreano)", "romanized": "romanización o lectura fonética en alfabeto latino de esa misma respuesta", "spanish": "traducción breve al español de tu respuesta"}.`
+  // NOTE: the user's own turn can now come typed/spoken in either the
+  // practiced language OR Spanish (the Android client's STT/hint switched
+  // to the practiced language, but nothing blocks typing Spanish) — the
+  // model must accept both. It must also return the romanization + Spanish
+  // meaning of the USER'S last message (userRomanized/userSpanish) so the
+  // client can render those under the user's own chat bubble, exactly like
+  // it already does for its own reply (native/romanized/spanish).
+  return `Eres un hablante nativo de ${languageLabel} actuando en este escenario de la vida real: ${scenarioLabel}. Debes actuar SIEMPRE como ese personaje, nunca como traductor ni asistente de IA, y nunca cambies de idioma. Responde ÚNICAMENTE en ${languageLabel} (en su escritura nativa), de forma breve (1-2 frases), natural y coherente con el escenario y el historial reciente de la conversación. El usuario puede escribirte tanto en ${languageLabel} (está practicando) como en español; entiendes ambos perfectamente y tú siempre respondes en ${languageLabel}. Después entrega también: la romanización/lectura fonética latina de tu respuesta, su traducción breve al español, y —muy importante— la romanización y la traducción breve al español del ÚLTIMO mensaje que el usuario te acaba de escribir a ti (si el usuario ya escribió en español, usa ese mismo texto como "userSpanish" y da su romanización aproximada en "userRomanized" solo si aplica, o repite el texto si no aplica). Devuelve SOLO un objeto JSON, sin texto ni comillas adicionales, con este formato exacto: {"native": "tu respuesta en la escritura nativa del idioma (kana/kanji para japonés, hangul para coreano, hanzi para chino)", "romanized": "romanización o lectura fonética en alfabeto latino de esa misma respuesta", "spanish": "traducción breve al español de tu respuesta", "userRomanized": "romanización/lectura fonética del último mensaje del usuario", "userSpanish": "traducción breve al español del último mensaje del usuario"}.`
 }
 
 export interface SimulateTurnDto {
@@ -58,6 +67,8 @@ export interface SimulateResult {
   native: string
   romanized: string
   spanish: string
+  userRomanized: string
+  userSpanish: string
 }
 
 /**
@@ -233,11 +244,19 @@ export async function callSimulate(
     .join('\n\n')
 
   const raw = await callDeepSeekRaw(apiKey, systemSimulate(scenario, language), userContent)
-  const parsed = parseJsonLoose<{ native?: string; romanized?: string; spanish?: string }>(raw)
+  const parsed = parseJsonLoose<{
+    native?: string
+    romanized?: string
+    spanish?: string
+    userRomanized?: string
+    userSpanish?: string
+  }>(raw)
   return {
     native: parsed?.native?.trim() || raw.trim(),
     romanized: parsed?.romanized?.trim() || '',
     spanish: parsed?.spanish?.trim() || '',
+    userRomanized: parsed?.userRomanized?.trim() || '',
+    userSpanish: parsed?.userSpanish?.trim() || '',
   }
 }
 

@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Locale
 import java.util.UUID
 
 /** Immutable UI state for Simulation Mode. Lives entirely on its own — never
@@ -31,6 +30,9 @@ data class SimulationUiState(
     val errorMessage: String? = null,
     val feedback: String? = null,
     val isGeneratingFeedback: Boolean = false,
+    /** Whether the "Sugerencias" chip row is shown. Persisted in SharedPreferences
+     *  ([PREFS_NAME]) so advanced users who hide it don't see it again. */
+    val suggestionsVisible: Boolean = true,
 )
 
 /**
@@ -54,7 +56,12 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
     private val speechManager = SpeechRecognitionManager(application.applicationContext)
     private val ttsManager = TtsManager(application.applicationContext)
 
-    private val _uiState = MutableStateFlow(SimulationUiState())
+    private val prefs = application.applicationContext
+        .getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+
+    private val _uiState = MutableStateFlow(
+        SimulationUiState(suggestionsVisible = prefs.getBoolean(KEY_SUGGESTIONS_VISIBLE, true)),
+    )
     val uiState: StateFlow<SimulationUiState> = _uiState.asStateFlow()
 
     init {
@@ -95,7 +102,7 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(inputText = text, errorMessage = null) }
     }
 
-    /** Press-to-talk mic for the user's Spanish turn (optional; typing always works). */
+    /** Press-to-talk mic for the user's turn, in the practiced language (optional; typing always works). */
     fun onMicToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
@@ -107,7 +114,12 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update { it.copy(isListening = false) }
         } else {
             ttsManager.stop()
-            speechManager.listenInSpanish()
+            // Fix: the recognizer used to always listen in es-MX regardless
+            // of the practiced language. Now it listens in whatever language
+            // the user is practicing (ja-JP/ko-KR/zh-CN/en-US), matching the
+            // chip selected in onSelectLanguage — the user's turn is spoken
+            // in the target language, not Spanish.
+            speechManager.speechLanguage = state.language.speechLocaleTag
             speechManager.start()
             _uiState.update { it.copy(isListening = true, errorMessage = null) }
         }
@@ -163,8 +175,26 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                     romanized = response.romanized,
                     spanishMeaning = response.spanish,
                 )
-                _uiState.update {
-                    it.copy(messages = it.messages + aiMessage, isSending = false)
+                _uiState.update { current ->
+                    // Fix: the user's own bubble used to show only the raw
+                    // target-language text with no romaji/Spanish. The same
+                    // /simulate call already returns userRomanized/userSpanish
+                    // for that exact message (no extra network round trip),
+                    // so back-fill the just-sent userMessage with them here.
+                    val updatedMessages = current.messages.map { msg ->
+                        if (msg.id == userMessage.id) {
+                            msg.copy(
+                                romanized = response.userRomanized,
+                                spanishMeaning = response.userSpanish,
+                            )
+                        } else {
+                            msg
+                        }
+                    }
+                    current.copy(
+                        messages = updatedMessages + aiMessage,
+                        isSending = false,
+                    )
                 }
                 speakAiReply(response.native, currentLanguage)
             } catch (e: WorkerApiException) {
@@ -232,6 +262,18 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    /** Prefills the input with a tapped starter suggestion; user still taps send. */
+    fun onUseSuggestion(suggestion: String) {
+        _uiState.update { it.copy(inputText = suggestion, errorMessage = null) }
+    }
+
+    /** "Ocultar/mostrar sugerencias" — persisted so it stays hidden next time. */
+    fun onToggleSuggestions() {
+        val newValue = !_uiState.value.suggestionsVisible
+        prefs.edit().putBoolean(KEY_SUGGESTIONS_VISIBLE, newValue).apply()
+        _uiState.update { it.copy(suggestionsVisible = newValue) }
+    }
+
     // ---- Internal --------------------------------------------------------
 
     private fun resetConversation() {
@@ -266,11 +308,9 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun speakAiReply(text: String, language: SimulationLanguage) {
         if (text.isBlank()) return
-        val locale = when (language) {
-            SimulationLanguage.JAPANESE -> Locale.JAPAN
-            SimulationLanguage.KOREAN -> Locale.KOREA
-        }
-        ttsManager.setLocale(locale)
+        // language.locale now covers all 4 practice languages (ja/ko/zh/en) —
+        // see SimulationLanguage.locale, derived from speechLocaleTag.
+        ttsManager.setLocale(language.locale)
         ttsManager.speak(text)
     }
 
@@ -283,5 +323,7 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
 
     private companion object {
         const val TAG = "SimulationMode"
+        const val PREFS_NAME = "simulation_mode_prefs"
+        const val KEY_SUGGESTIONS_VISIBLE = "suggestions_visible"
     }
 }

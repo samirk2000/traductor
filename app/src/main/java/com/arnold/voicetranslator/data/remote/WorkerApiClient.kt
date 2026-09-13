@@ -46,9 +46,11 @@ class WorkerApiClient {
             level = LogLevel.INFO
         }
         install(HttpTimeout) {
-            requestTimeoutMillis = 15_000
-            connectTimeoutMillis = 8_000
-            socketTimeoutMillis = 15_000
+            // 20s (was 15s): /simulate with the "Cita" scenario's longer,
+            // more elaborate system prompt was occasionally exceeding 15s.
+            requestTimeoutMillis = 20_000
+            connectTimeoutMillis = 20_000
+            socketTimeoutMillis = 20_000
         }
         engine {
             maxConnectionsCount = 2
@@ -198,31 +200,58 @@ class WorkerApiClient {
                 response.bodyAsText()
             } else {
                 val errorBody = response.bodyAsText()
-                Log.e(TAG, "$routeForLogging non-2xx status=${response.status.value} body=$errorBody")
+                Log.e(
+                    TAG,
+                    "$routeForLogging non-2xx status=${response.status.value} " +
+                        "body=${maskTail(errorBody)}",
+                )
                 val error = runCatching {
                     strictJson.decodeFromString<WorkerErrorResponse>(errorBody)
                 }.getOrNull()
-                if (response.status.value == 429) {
-                    throw WorkerApiException(
-                        "Se alcanzó el límite diario de traducciones. Intenta más tarde."
-                    )
-                }
-                throw WorkerApiException(
-                    error?.error ?: "El servidor respondió con error ${response.status.value}"
-                )
+                throw WorkerApiException(messageForStatus(response.status.value, error?.error))
             }
         } catch (e: HttpRequestTimeoutException) {
-            throw WorkerApiException("La solicitud al servidor agotó el tiempo de espera.")
+            Log.e(TAG, "$routeForLogging timeout: ${maskTail(e.message)}")
+            throw WorkerApiException(
+                "La solicitud tardó demasiado. Revisa tu internet / API key inválida e intenta de nuevo."
+            )
         } catch (e: WorkerApiException) {
             throw e
         } catch (e: Exception) {
-            throw WorkerApiException("No se pudo conectar con el servidor: ${e.message}")
+            Log.e(TAG, "$routeForLogging connection error: ${maskTail(e.message)}")
+            throw WorkerApiException("Revisa tu internet / API key inválida e intenta de nuevo.")
         }
 
         if (rawText.isBlank()) {
             throw WorkerApiException("El servidor devolvió una respuesta vacía.")
         }
         return rawText
+    }
+
+    /**
+     * Maps a non-2xx HTTP status from the Worker into a safe, user-facing
+     * Spanish message. 401/403 point at an invalid/missing API key
+     * configured server-side (the Worker secrets), 404 at a missing/stale
+     * route (Worker not deployed with this endpoint), 429 at the daily rate
+     * limit, and everything else falls back to [fallback] or a generic
+     * message — never echoing raw response bodies to the UI.
+     */
+    private fun messageForStatus(status: Int, fallback: String?): String = when (status) {
+        401, 403 -> "Revisa tu internet / API key inválida en el servidor."
+        404 -> "Servicio no disponible (404). Revisa tu internet / que el servidor esté desplegado."
+        429 -> "Se alcanzó el límite diario de traducciones. Intenta más tarde."
+        else -> fallback ?: "Revisa tu internet / API key inválida. (Error $status)"
+    }
+
+    /**
+     * Logs at most the last 4 characters of [text] (never the full value),
+     * so an accidental token/key leaked into a library exception message or
+     * error body is never fully written to Logcat.
+     */
+    private fun maskTail(text: String?): String {
+        if (text.isNullOrBlank()) return "<empty>"
+        val tail = text.takeLast(4)
+        return "…$tail (len=${text.length})"
     }
 
     /** Releases the underlying HTTP client and its connection pool. */
