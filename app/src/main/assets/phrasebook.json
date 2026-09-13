@@ -1,0 +1,47 @@
+[
+  { "id": "basico_01", "category": "basico", "es": "Hola", "ja": { "kana": "こんにちは", "romaji": "Konnichiwa" }, "ko": { "hangul": "안녕하세요", "romanized": "Annyeonghaseyo" } },
+  { "id": "basico_02", "category": "basico", "es": "Gracias", "ja": { "kana": "ありがとうございます", "romaji": "Arigatou gozaimasu" }, "ko": { "hangul": "감사합니다", "romanized": "Gamsahamnida" } },
+  { "id": "basico_03", "category": "basico", "es": "Por favor", "ja": { "kana": "お願いします", "romaji": "Onegaishimasu" }, "ko": { "hangul": "부탁합니다", "romanized": "Butakhamnida" } },
+  { "id": "basico_04", "category": "basico", "es": "Sí", "ja": { "kana": "はい", "romaji": "Hai" }, "ko": { "hangul": "네", "romanized": "Ne" } },
+  { "id": "basico_05", "category": "basico", "es": "No", "ja": { "kana": "いいえ", "romaji": "Iie" }, "ko": { "hangul": "아니요", "romanized": "Aniyo" } },
+  { "id": "basico_06", "category": "basico", "es": "Lo siento / Perdón", "ja": { "kana": "すみません", "romaji": "Sumimasen" }, "ko": { "hangul": "죄송합니다", "romanized": "Joesonghamnida" } },
+  { "id": "basico_07", "category": "basico", "es": "¿Cómo estás?", "ja": { "kana": "お元気ですか", "romaji": "Ogenki desu ka" }, "ko": { "hangul": "어떻게 지내세요?", "romanized": "Eotteoke jinaeseyo?" } },
+  { "id": "basico_08", "category": "basico", "es": "Adiós", "ja": { "kana": "さようなら", "romaji": "Sayounara" }, "ko": { "hangul": "안녕히 가세요", "romanized": "Annyeonghi gaseyo" } },
+
+  { "id": "aeropuerto_01", "category": "aeropuerto", "es": "¿Dónde está la puerta de embarque?", "ja": { "kana": "搭乗口はどこですか", "romaji": "Toujouguchi wa doko desu ka" }, "ko": { "hangul": "탑승구가 어디예요?", "romanized": "Tapseungguga eodiyeyo?" } },
+  { "id": "aeropuerto_02", "category": "aeropuerto", "es": "¿Dónde está el equipaje?", "ja": { "kana": "荷物はどこですか", "romaji": "Nimotsu wa doko desu ka" }, "ko": { "hangul": "짐은 어디에 있어요?", "romanized": "Jimeun eodie isseoyo?" } },
+  { "id": "aeropuerto_03", "category": "aeropuerto", "es": "Necesito un taxi", "ja": { "kana": "タクシーが必要です", "romaji": "Takushii ga hitsuyou desu" }, "ko": { "hangul": "택시가 필요해요", "romanized": "Taeksiga piryohaeyo" } },
+  { "id": "aeropuerto_04", "category": "aeropuerto", "es": "¿Dónde está el baño?", "ja": { "kana": "トイレはどこですか", "romaji": "Toire wa doko desu ka" }, "ko": { "hangul": "화장실이 어디예요?", "romanized": "Hwajangsiri eodiyeyo?" } },
+  { "id": "aeropuerto_05", "category": "aeropuerto", "es": "¿A qué hora sale el vuelo?", "ja": { "kana": "フライトは何時に出発しますか", "romaji": "Furaito wa nanji ni shuppatsu shimasu ka" }, "ko": { "hangul": "비행기가 몇 시에 출발해요?", "romanized": "Bihaenggiga myeot sie chulbalhaeyo?" } },
+  { "id": "aeropuerto_06", "category": "aeropuerto", "es": "Perdí mi vuelo", "ja": { "kana": "飛行機に乗り遅れました", "romaji": "Hikouki ni noriokuremashita" }, "ko": { "hangul": "비행기를 놓쳤어요", "romanized": "Bihaenggireul nochyeosseoyo" } },
+
+  { "id": "hotel_01", "category": "hotel", "es": "Tengo una reserva", "ja": { "kana": "予約があります", "romaji": "Yoyaku ga arimasu" }, "ko": { "hangul": "예약이 있어요", "romanized": "Yeyagi isseoyo" } },
+  { "id": "hotel_02", "category": "hotel", "es": "¿Cuál es mi número de habitación?", "ja": { "kana": "私の部屋番号は何ですか", "romaji": "Watashi no heya bangou wa nan desu ka" }, "ko": { "hangul": "제 방 번호가 뭐예요?", "romanized": "Je bang beonhoga mwoyeyo?" } },
+  { "id": "hotel_03", "category": "hotel", "es": "¿Tiene wifi?", "ja": { "kana": "Wi-Fiはありますか", "romaji": "Wai-fai wa arimasu ka" }, "ko": { "hangul": "와이파이 있어요?", "romanized": "Waipai isseoyo?" } },
+  { "id": "hotel_04", "category": "hotel", "es": "Necesito otra toalla", "ja": { "kana": "タオルをもう一枚お願いします", "romaji": "Taoru wo mou ichimai onegaishimasu" }, "ko": { "hangul": "수건을 하나 더 주세요", "romanized": "Sugeoneul hana deo juseyo" } },
+  { "id": "hotel_05", "category": "hotel", "es": "¿A qué hora es el check-out?", "ja": { "kana": "チェックアウトは何時ですか", "romaji": "Chekkuauto wa nanji desu ka" }, "ko": { "hangul": "체크아웃이 몇 시예요?", "romanized": "Chekeuauteun myeot siyeyo?" } },
+  { "id": "hotel_06", "category": "hotel", "es": "La habitación está sucia", "ja": { "kana": "部屋が汚いです", "romaji": "Heya ga kitanai desu" }, "ko": { "hangul": "방이 더러워요", "romanized": "Bangi deoreowoyo" } },
+
+  { "id": "restaurante_01", "category": "restaurante", "es": "La cuenta, por favor", "ja": { "kana": "お会計お願いします", "romaji": "Okaikei onegaishimasu" }, "ko": { "hangul": "계산서 주세요", "romanized": "Gyesanseo juseyo" } },
+  { "id": "restaurante_02", "category": "restaurante", "es": "Quiero esto", "ja": { "kana": "これをください", "romaji": "Kore wo kudasai" }, "ko": { "hangul": "이거 주세요", "romanized": "Igeo juseyo" } },
+  { "id": "restaurante_03", "category": "restaurante", "es": "Está delicioso", "ja": { "kana": "おいしいです", "romaji": "Oishii desu" }, "ko": { "hangul": "맛있어요", "romanized": "Masisseoyo" } },
+  { "id": "restaurante_04", "category": "restaurante", "es": "¿Tiene menú en inglés?", "ja": { "kana": "英語のメニューはありますか", "romaji": "Eigo no menyuu wa arimasu ka" }, "ko": { "hangul": "영어 메뉴 있어요?", "romanized": "Yeongeo menyu isseoyo?" } },
+  { "id": "restaurante_05", "category": "restaurante", "es": "Soy alérgico a esto", "ja": { "kana": "これにアレルギーがあります", "romaji": "Kore ni arerugii ga arimasu" }, "ko": { "hangul": "저는 이거에 알레르기가 있어요", "romanized": "Jeoneun igeoe allereogiga isseoyo" } },
+  { "id": "restaurante_06", "category": "restaurante", "es": "Agua, por favor", "ja": { "kana": "お水お願いします", "romaji": "Omizu onegaishimasu" }, "ko": { "hangul": "물 주세요", "romanized": "Mul juseyo" } },
+  { "id": "restaurante_07", "category": "restaurante", "es": "Sin picante, por favor", "ja": { "kana": "辛くないものでお願いします", "romaji": "Karakunai mono de onegaishimasu" }, "ko": { "hangul": "안 매운 걸로 주세요", "romanized": "An maeun geollo juseyo" } },
+  { "id": "restaurante_08", "category": "restaurante", "es": "Una mesa para dos", "ja": { "kana": "二人席お願いします", "romaji": "Futari seki onegaishimasu" }, "ko": { "hangul": "두 명 자리 주세요", "romanized": "Du myeong jari juseyo" } },
+
+  { "id": "emergencia_01", "category": "emergencia", "es": "¡Ayuda!", "ja": { "kana": "助けて", "romaji": "Tasukete" }, "ko": { "hangul": "도와주세요", "romanized": "Dowajuseyo" } },
+  { "id": "emergencia_02", "category": "emergencia", "es": "Llame a la policía", "ja": { "kana": "警察を呼んでください", "romaji": "Keisatsu wo yonde kudasai" }, "ko": { "hangul": "경찰을 불러주세요", "romanized": "Gyeongchareul bulleojuseyo" } },
+  { "id": "emergencia_03", "category": "emergencia", "es": "Necesito un médico", "ja": { "kana": "医者が必要です", "romaji": "Isha ga hitsuyou desu" }, "ko": { "hangul": "의사가 필요해요", "romanized": "Uisaga piryohaeyo" } },
+  { "id": "emergencia_04", "category": "emergencia", "es": "Me perdí", "ja": { "kana": "道に迷いました", "romaji": "Michi ni mayoimashita" }, "ko": { "hangul": "길을 잃었어요", "romanized": "Gireul ilheosseoyo" } },
+  { "id": "emergencia_05", "category": "emergencia", "es": "Me robaron", "ja": { "kana": "盗まれました", "romaji": "Nusumaremashita" }, "ko": { "hangul": "도둑맞았어요", "romanized": "Dodukmajasseoyo" } },
+  { "id": "emergencia_06", "category": "emergencia", "es": "Llame a una ambulancia", "ja": { "kana": "救急車を呼んでください", "romaji": "Kyuukyuusha wo yonde kudasai" }, "ko": { "hangul": "구급차를 불러주세요", "romanized": "Gugeupchareul bulleojuseyo" } },
+
+  { "id": "compras_01", "category": "compras", "es": "¿Cuánto cuesta esto?", "ja": { "kana": "これはいくらですか", "romaji": "Kore wa ikura desu ka" }, "ko": { "hangul": "이거 얼마예요?", "romanized": "Igeo eolmayeyo?" } },
+  { "id": "compras_02", "category": "compras", "es": "¿Puedo pagar con tarjeta?", "ja": { "kana": "カードで払えますか", "romaji": "Kaado de haraemasu ka" }, "ko": { "hangul": "카드로 결제할 수 있어요?", "romanized": "Kadeuro gyeoljehal su isseoyo?" } },
+  { "id": "compras_03", "category": "compras", "es": "Es muy caro", "ja": { "kana": "とても高いです", "romaji": "Totemo takai desu" }, "ko": { "hangul": "너무 비싸요", "romanized": "Neomu bissayo" } },
+  { "id": "compras_04", "category": "compras", "es": "¿Tiene otro color?", "ja": { "kana": "他の色はありますか", "romaji": "Hoka no iro wa arimasu ka" }, "ko": { "hangul": "다른 색 있어요?", "romanized": "Dareun saek isseoyo?" } },
+  { "id": "compras_05", "category": "compras", "es": "Solo estoy mirando", "ja": { "kana": "見ているだけです", "romaji": "Miteiru dake desu" }, "ko": { "hangul": "그냥 구경하는 거예요", "romanized": "Geunyang gugyeonghaneun geoyeyo" } },
+  { "id": "compras_06", "category": "compras", "es": "¿Puedo probármelo?", "ja": { "kana": "試着できますか", "romaji": "Shichaku dekimasu ka" }, "ko": { "hangul": "입어봐도 돼요?", "romanized": "Ibeobwado dwaeyo?" } }
+]
