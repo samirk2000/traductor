@@ -4,6 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +59,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +72,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +80,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arnold.voicetranslator.ui.localization.UiLanguage
 
 /**
  * Standalone screen for "Modo Simulación" (Simulation Mode).
@@ -98,10 +108,34 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SimulationModeScreen(
     viewModel: SimulationViewModel,
     modifier: Modifier = Modifier,
+    // App-wide UI language (see MainActivity/TranslatorUiState.uiLanguage),
+    // driven by the Traductor's Origen selector: when Origen = Inglés, this
+    // whole screen's own copy (buttons, hints, empty states…) switches to
+    // English too, on top of the existing "practicing English" immersion
+    // mode below — so "Origen = Inglés" really does localize EVERY screen,
+    // not just Traductor/Fraseario.
+    appUiLanguage: UiLanguage = UiLanguage.ES,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Keeps the ViewModel's copy of the app-wide UI language in sync so
+    // /simulate calls know which language to return the "meaning" fields in
+    // (see SimulationViewModel.onAppUiLanguageChanged / dispatchToBackend).
+    LaunchedEffect(appUiLanguage) {
+        viewModel.onAppUiLanguageChanged(appUiLanguage)
+    }
+
+    // Fix: selecting 🇺🇸 English as the practiced language now flips this
+    // whole screen's own copy (buttons, hints, empty states…) to English too
+    // — an "immersion" mode. Any other language (JA/KO/ZH) keeps the app's
+    // native Spanish/Mexican UI, matching what a Mexican Spanish speaker
+    // practicing those languages would expect. Also flips to English
+    // whenever the app-wide Origen selector is English, regardless of which
+    // language is being practiced.
+    val englishUi = state.language == SimulationLanguage.ENGLISH || appUiLanguage == UiLanguage.EN
+    val texts = simCopy(englishUi)
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -117,12 +151,23 @@ fun SimulationModeScreen(
 
     // Fix: errorMessage used to render as a permanent red Text that stayed on
     // screen (covering layout) until the next action cleared it. Now it's a
-    // transient Snackbar that auto-dismisses after a few seconds.
+    // transient Snackbar that auto-dismisses after a few seconds — and, when
+    // [SimulationUiState.canRetry] is true (a failed send that can be
+    // re-sent as-is, e.g. "Servidor ocupado"), it also shows a "Reintentar"
+    // action button instead of forcing the user to retype the message.
     LaunchedEffect(state.errorMessage) {
         val message = state.errorMessage
         if (!message.isNullOrBlank()) {
-            snackbarHostState.showSnackbar(message = message, duration = SnackbarDuration.Short)
-            viewModel.onDismissError()
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = if (state.canRetry) texts.retry else null,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.onRetryLastMessage()
+            } else {
+                viewModel.onDismissError()
+            }
         }
     }
 
@@ -136,6 +181,7 @@ fun SimulationModeScreen(
             SimulationSelectors(
                 selectedScenario = state.scenario,
                 selectedLanguage = state.language,
+                englishUi = englishUi,
                 onSelectScenario = viewModel::onSelectScenario,
                 onSelectLanguage = viewModel::onSelectLanguage,
             )
@@ -145,7 +191,10 @@ fun SimulationModeScreen(
             SimulationChatArea(
                 messages = state.messages,
                 isSending = state.isSending,
+                showSlowSendHint = state.showSlowSendHint,
+                onRetrySlowRequest = viewModel::onCancelAndRetrySlowRequest,
                 language = state.language,
+                englishUi = englishUi,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -155,8 +204,16 @@ fun SimulationModeScreen(
 
             SimulationSuggestions(
                 visible = state.suggestionsVisible,
-                suggestions = state.scenario.starterSuggestions,
-                onSuggestionClick = viewModel::onUseSuggestion,
+                // Fix: suggestions used to stay fixed the whole conversation
+                // (only ever the static per-scenario list). Now they follow
+                // the AI's last reply (dynamicSuggestions, from the same
+                // /simulate call) once there's been at least one AI turn;
+                // the static list only covers the very first message.
+                suggestions = state.dynamicSuggestions.ifEmpty {
+                    scenarioSuggestions(state.scenario, state.language)
+                },
+                englishUi = englishUi,
+                onSuggestionClick = viewModel::onSendSuggestion,
                 onToggleVisible = viewModel::onToggleSuggestions,
             )
 
@@ -168,6 +225,7 @@ fun SimulationModeScreen(
                 isListening = state.isListening,
                 hasMicPermission = state.hasMicPermission,
                 language = state.language,
+                englishUi = englishUi,
                 onInputTextChange = viewModel::onInputTextChange,
                 onSend = viewModel::onSendMessage,
                 onMicToggle = {
@@ -177,6 +235,21 @@ fun SimulationModeScreen(
                         viewModel.onMicToggle()
                     }
                 },
+            )
+
+            // Fix: beginners who don't know how to say it yet were forced to
+            // leave Simulación and go to Traductor. This collapsible helper
+            // lets them type in Spanish right here; /simulate translates it
+            // into the practiced language automatically (same flow as the
+            // main input — see SimulationViewModel.onSendSpanishHelperMessage).
+            SimulationSpanishHelper(
+                expanded = state.spanishHelperExpanded,
+                text = state.spanishHelperText,
+                isSending = state.isSending,
+                englishUi = englishUi,
+                onToggleExpanded = viewModel::onToggleSpanishHelper,
+                onTextChange = viewModel::onSpanishHelperTextChange,
+                onSend = viewModel::onSendSpanishHelperMessage,
             )
 
             Spacer(Modifier.size(10.dp))
@@ -190,11 +263,11 @@ fun SimulationModeScreen(
                 if (state.isGeneratingFeedback) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.size(8.dp))
-                    Text("Analizando tu nivel…")
+                    Text(texts.analyzingLevel)
                 } else {
                     Icon(Icons.Default.School, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(8.dp))
-                    Text("Terminar y dar feedback")
+                    Text(texts.finishAndFeedback)
                 }
             }
         }
@@ -210,14 +283,106 @@ fun SimulationModeScreen(
     state.feedback?.let { feedback ->
         AlertDialog(
             onDismissRequest = viewModel::onDismissFeedback,
-            title = { Text("Tu nivel en ${state.language.displayName}") },
+            title = { Text("${texts.yourLevelIn} ${state.language.label(englishUi)}") },
             text = { Text(feedback, style = MaterialTheme.typography.bodyMedium) },
             confirmButton = {
-                TextButton(onClick = viewModel::onDismissFeedback) { Text("Cerrar") }
+                TextButton(onClick = viewModel::onDismissFeedback) { Text(texts.close) }
             },
         )
     }
 }
+
+// ===========================================================================
+// UI copy — Spanish (default) / English ("immersion" when practicing English)
+// ===========================================================================
+
+/**
+ * All the Simulation Mode screen's own static UI copy, in one place, so it
+ * can switch language wholesale via [simCopy]. Doesn't cover
+ * [WorkerApiClient]-level error messages (shared with the rest of the app,
+ * out of scope here) nor scenario/language names (see
+ * [SimulationScenario.label]/[SimulationLanguage.label], already bilingual).
+ */
+private data class SimTexts(
+    val scenarioPrefix: String,
+    val languagePrefix: String,
+    val collapse: String,
+    val expand: String,
+    val showSuggestions: String,
+    val hideSuggestions: String,
+    val suggestionsHeader: String,
+    val emptyChatPrefix: String,
+    val emptyChatSuffix: String,
+    val typing: String,
+    val stopMic: String,
+    val speakIn: String,
+    val send: String,
+    val spanishHelperCollapsedLabel: String,
+    val spanishHelperExpandedLabel: String,
+    val spanishHelperPlaceholder: String,
+    val spanishHelperSend: String,
+    val analyzingLevel: String,
+    val finishAndFeedback: String,
+    val yourLevelIn: String,
+    val close: String,
+    val retry: String,
+)
+
+private val ES_SIM_TEXTS = SimTexts(
+    scenarioPrefix = "Escenario:",
+    languagePrefix = "Idioma:",
+    collapse = "Colapsar",
+    expand = "Expandir",
+    showSuggestions = "Mostrar sugerencias",
+    hideSuggestions = "Ocultar sugerencias",
+    suggestionsHeader = "💡 Sugerencias",
+    emptyChatPrefix = "Escribe (o habla) en",
+    emptyChatSuffix = "para empezar a practicar en este escenario.",
+    typing = "Escribiendo",
+    stopMic = "Detener micrófono",
+    speakIn = "Hablar en",
+    send = "Enviar",
+    spanishHelperCollapsedLabel = "¿No sabes cómo decirlo? Escríbelo en español 👉",
+    spanishHelperExpandedLabel = "🙈 Ocultar ayuda en español",
+    spanishHelperPlaceholder = "Escribe en español y te lo traduzco…",
+    spanishHelperSend = "Traducir y enviar",
+    analyzingLevel = "Analizando tu nivel…",
+    finishAndFeedback = "Terminar y dar feedback",
+    yourLevelIn = "Tu nivel en",
+    close = "Cerrar",
+    retry = "Reintentar",
+)
+
+private val EN_SIM_TEXTS = SimTexts(
+    scenarioPrefix = "Scenario:",
+    languagePrefix = "Language:",
+    collapse = "Collapse",
+    expand = "Expand",
+    showSuggestions = "Show suggestions",
+    hideSuggestions = "Hide suggestions",
+    suggestionsHeader = "💡 Suggestions",
+    emptyChatPrefix = "Write (or speak) in",
+    emptyChatSuffix = "to start practicing this scenario.",
+    typing = "Typing",
+    stopMic = "Stop microphone",
+    speakIn = "Speak in",
+    send = "Send",
+    // Fix: the bridge-language helper stays useful even in English immersion
+    // mode (you may still not know how to phrase something in English) — only
+    // its surrounding label switches to English, "español" stays as the name
+    // of the language you'd actually type into that secondary field.
+    spanishHelperCollapsedLabel = "Don't know how to say it? Write it in Spanish 👉",
+    spanishHelperExpandedLabel = "🙈 Hide Spanish help",
+    spanishHelperPlaceholder = "Write in Spanish and I'll translate it…",
+    spanishHelperSend = "Translate and send",
+    analyzingLevel = "Analyzing your level…",
+    finishAndFeedback = "Finish & get feedback",
+    yourLevelIn = "Your level in",
+    close = "Close",
+    retry = "Retry",
+)
+
+private fun simCopy(englishUi: Boolean): SimTexts = if (englishUi) EN_SIM_TEXTS else ES_SIM_TEXTS
 
 // ===========================================================================
 // Scenario + language selectors (collapsible)
@@ -228,6 +393,7 @@ fun SimulationModeScreen(
 private fun SimulationSelectors(
     selectedScenario: SimulationScenario,
     selectedLanguage: SimulationLanguage,
+    englishUi: Boolean,
     onSelectScenario: (SimulationScenario) -> Unit,
     onSelectLanguage: (SimulationLanguage) -> Unit,
 ) {
@@ -236,11 +402,13 @@ private fun SimulationSelectors(
     // default), so the chat area gains space once the user picks both.
     var isScenarioExpanded by rememberSaveable { mutableStateOf(true) }
     var isLanguageExpanded by rememberSaveable { mutableStateOf(true) }
+    val texts = simCopy(englishUi)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         CollapsibleSection(
-            title = "Escenario: ${selectedScenario.emoji} ${selectedScenario.displayName}",
+            title = "${texts.scenarioPrefix} ${selectedScenario.emoji} ${selectedScenario.label(englishUi)}",
             expanded = isScenarioExpanded,
+            texts = texts,
             onToggle = { isScenarioExpanded = !isScenarioExpanded },
         ) {
             FlowRow(
@@ -252,7 +420,7 @@ private fun SimulationSelectors(
                     FilterChip(
                         selected = scenario == selectedScenario,
                         onClick = { onSelectScenario(scenario) },
-                        label = { Text("${scenario.emoji} ${scenario.displayName}") },
+                        label = { Text("${scenario.emoji} ${scenario.label(englishUi)}") },
                         modifier = Modifier.height(36.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -265,8 +433,9 @@ private fun SimulationSelectors(
         Spacer(Modifier.size(8.dp))
 
         CollapsibleSection(
-            title = "Idioma: ${selectedLanguage.flagEmoji} ${selectedLanguage.displayName}",
+            title = "${texts.languagePrefix} ${selectedLanguage.flagEmoji} ${selectedLanguage.label(englishUi)}",
             expanded = isLanguageExpanded,
+            texts = texts,
             onToggle = { isLanguageExpanded = !isLanguageExpanded },
         ) {
             // Fix: with 4 languages now (JA/KO/ZH/EN), a plain fillMaxWidth
@@ -286,7 +455,7 @@ private fun SimulationSelectors(
                     FilterChip(
                         selected = language == selectedLanguage,
                         onClick = { onSelectLanguage(language) },
-                        label = { Text("${language.flagEmoji} ${language.displayName}") },
+                        label = { Text("${language.flagEmoji} ${language.label(englishUi)}") },
                         modifier = Modifier.height(36.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -303,6 +472,7 @@ private fun SimulationSelectors(
 private fun CollapsibleSection(
     title: String,
     expanded: Boolean,
+    texts: SimTexts,
     onToggle: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -328,7 +498,7 @@ private fun CollapsibleSection(
                 )
                 Icon(
                     imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Colapsar" else "Expandir",
+                    contentDescription = if (expanded) texts.collapse else texts.expand,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -346,24 +516,28 @@ private fun CollapsibleSection(
 // ===========================================================================
 
 /**
- * Static, per-scenario starter phrases for beginners who don't know what to
- * say next ("no saben que decir después"). Tapping one prefills the input;
- * the user still has to tap send. Hideable for advanced users — persisted in
- * SharedPreferences via [SimulationViewModel.onToggleSuggestions] so it stays
- * hidden across sessions once dismissed.
+ * Static, per-(scenario, language) starter phrases for beginners who don't
+ * know what to say next ("no saben que decir después"). Each chip shows the
+ * romanized form + Spanish meaning (readable for a beginner), e.g. "Kore wa
+ * ikura desu ka? (¿Cuánto cuesta esto?)", but tapping sends the real
+ * native-script text immediately — see [SimulationViewModel.onSendSuggestion].
+ * Hideable for advanced users — persisted in SharedPreferences via
+ * [SimulationViewModel.onToggleSuggestions] so it stays hidden across sessions.
  */
 @Composable
 private fun SimulationSuggestions(
     visible: Boolean,
-    suggestions: List<String>,
-    onSuggestionClick: (String) -> Unit,
+    suggestions: List<ScenarioSuggestion>,
+    englishUi: Boolean,
+    onSuggestionClick: (ScenarioSuggestion) -> Unit,
     onToggleVisible: () -> Unit,
 ) {
+    val texts = simCopy(englishUi)
     if (!visible) {
         TextButton(onClick = onToggleVisible) {
             Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(4.dp))
-            Text("Mostrar sugerencias", style = MaterialTheme.typography.bodySmall)
+            Text(texts.showSuggestions, style = MaterialTheme.typography.bodySmall)
         }
         return
     }
@@ -375,14 +549,14 @@ private fun SimulationSuggestions(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "💡 Sugerencias",
+                texts.suggestionsHeader,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             IconButton(onClick = onToggleVisible, modifier = Modifier.size(28.dp)) {
                 Icon(
                     imageVector = Icons.Default.VisibilityOff,
-                    contentDescription = "Ocultar sugerencias",
+                    contentDescription = texts.hideSuggestions,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -399,9 +573,78 @@ private fun SimulationSuggestions(
             suggestions.forEach { suggestion ->
                 AssistChip(
                     onClick = { onSuggestionClick(suggestion) },
-                    label = { Text(suggestion, style = MaterialTheme.typography.bodySmall) },
+                    label = {
+                        Text(
+                            "${suggestion.romanized} (${suggestion.spanish})",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    },
                     modifier = Modifier.height(32.dp),
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Collapsible secondary input for beginners who don't know how to say
+ * something in the practiced language yet: "¿No sabes cómo decirlo?
+ * Escríbelo en español 👉" expands a small Spanish-labeled [OutlinedTextField]
+ * whose send button routes through [SimulationViewModel.onSendSpanishHelperMessage]
+ * (same /simulate translation flow as the main input).
+ */
+@Composable
+private fun SimulationSpanishHelper(
+    expanded: Boolean,
+    text: String,
+    isSending: Boolean,
+    englishUi: Boolean,
+    onToggleExpanded: () -> Unit,
+    onTextChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    val texts = simCopy(englishUi)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TextButton(onClick = onToggleExpanded, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (expanded) texts.spanishHelperExpandedLabel else texts.spanishHelperCollapsedLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (expanded) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text(texts.spanishHelperPlaceholder) },
+                    singleLine = true,
+                    enabled = !isSending,
+                )
+                IconButton(
+                    onClick = onSend,
+                    enabled = !isSending && text.isNotBlank(),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.secondary.copy(
+                                alpha = if (!isSending && text.isNotBlank()) 1f else 0.4f,
+                            ),
+                            shape = CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = texts.spanishHelperSend,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
@@ -415,9 +658,17 @@ private fun SimulationSuggestions(
 private fun SimulationChatArea(
     messages: List<SimulationMessage>,
     isSending: Boolean,
+    // Fix: a slow/stuck /simulate call used to leave "Escribiendo…" on
+    // screen indefinitely (up to the full 45s timeout). Once true (after
+    // SimulationViewModel.SLOW_SEND_HINT_DELAY_MS, ~10s), shows a small
+    // inline "Reintentar" next to the typing bubble instead.
+    showSlowSendHint: Boolean,
+    onRetrySlowRequest: () -> Unit,
     language: SimulationLanguage,
+    englishUi: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val texts = simCopy(englishUi)
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
@@ -426,8 +677,7 @@ private fun SimulationChatArea(
         if (messages.isEmpty() && !isSending) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "Escribe (o habla) en ${language.displayName} para empezar a " +
-                        "practicar en este escenario.",
+                    "${texts.emptyChatPrefix} ${language.label(englishUi)} ${texts.emptyChatSuffix}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -451,7 +701,13 @@ private fun SimulationChatArea(
                     SimulationChatBubble(message)
                 }
                 if (isSending) {
-                    item(key = "typing") { SimulationTypingBubble() }
+                    item(key = "typing") {
+                        SimulationTypingBubble(
+                            englishUi = englishUi,
+                            showRetryHint = showSlowSendHint,
+                            onRetry = onRetrySlowRequest,
+                        )
+                    }
                 }
             }
         }
@@ -459,15 +715,20 @@ private fun SimulationChatArea(
 }
 
 /**
- * Chat bubble for both senders. Fix: the user bubble used to show ONLY the
- * raw target-language text with no romaji/translation. Now — mirroring the
- * AI bubble — it also shows [SimulationMessage.romanized] (small, gray) and
- * [SimulationMessage.spanishMeaning] (smaller, gray) once the Worker's
- * `/simulate` response backfills them (see [SimulationViewModel.onSendMessage]).
+ * Chat bubble for both senders, showing up to 3 DISTINCT lines: native
+ * script (large), romanization (medium, gray), Spanish meaning (small,
+ * gray) — in that order, skipping any line that's blank or a duplicate of
+ * one already shown.
+ *
+ * Fix: the user bubble used to show the same string 3 times whenever the
+ * Worker had nothing better to return for romanized/spanishMeaning (e.g. a
+ * pure-Spanish message before the `userNative` fix). [bubbleLines] below
+ * dedupes so only genuinely different representations are ever rendered.
  */
 @Composable
 private fun SimulationChatBubble(message: SimulationMessage) {
     val isUser = message.sender == SimulationSender.USER
+    val lines = bubbleLines(message, isUser)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -487,51 +748,41 @@ private fun SimulationChatBubble(message: SimulationMessage) {
             modifier = Modifier.fillMaxWidth(0.85f),
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                if (isUser) {
-                    Text(
-                        text = message.spanishText,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (message.romanized.isNotBlank()) {
-                        Spacer(Modifier.size(4.dp))
-                        Text(
-                            text = message.romanized,
+                lines.forEachIndexed { index, line ->
+                    if (index > 0) Spacer(Modifier.size(4.dp))
+                    when (index) {
+                        // Regla de oro visual: SIEMPRE escritura nativa grande primero.
+                        0 -> Text(
+                            text = line,
+                            style = if (isUser) {
+                                MaterialTheme.typography.bodyLarge
+                            } else {
+                                MaterialTheme.typography.headlineSmall
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isUser) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                        )
+                        1 -> Text(
+                            text = line,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            color = if (isUser) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
-                    }
-                    if (message.spanishMeaning.isNotBlank()) {
-                        Spacer(Modifier.size(4.dp))
-                        Text(
-                            text = message.spanishMeaning,
+                        else -> Text(
+                            text = line,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                        )
-                    }
-                } else {
-                    // Regla de oro visual: SIEMPRE kana/hangul grande, nunca solo romaji.
-                    Text(
-                        text = message.nativeScript.ifBlank { "…" },
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    if (message.romanized.isNotBlank()) {
-                        Spacer(Modifier.size(4.dp))
-                        Text(
-                            text = message.romanized,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (message.spanishMeaning.isNotBlank()) {
-                        Spacer(Modifier.size(4.dp))
-                        Text(
-                            text = message.spanishMeaning,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            color = if (isUser) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            },
                         )
                     }
                 }
@@ -540,9 +791,63 @@ private fun SimulationChatBubble(message: SimulationMessage) {
     }
 }
 
+/**
+ * Builds the deduped list of lines to render for a bubble: native script (or
+ * the raw typed text as fallback), then romanization if different, then the
+ * translated meaning (in the app's UI language, see
+ * [SimulationViewModel.onAppUiLanguageChanged]) if different from both.
+ *
+ * Fix: the USER bubble's third line used to prefer the raw text the user
+ * actually typed/said ([SimulationMessage.spanishText]) over the Worker's
+ * real translated meaning ([SimulationMessage.spanishMeaning], filled from
+ * `userSpanish`) — so e.g. saying "Ohayou gozaimasu" never showed "Buenos
+ * días"/"Good morning" on the user's own side, only kana+romaji (which,
+ * since the raw text usually duplicated one of those two lines already, got
+ * deduped away entirely). Now both senders prefer the real translated
+ * meaning first, falling back to the raw text only if the Worker didn't
+ * return one (e.g. a request that failed before the back-fill).
+ */
+private fun bubbleLines(message: SimulationMessage, isUser: Boolean): List<String> {
+    val primary = message.nativeScript.ifBlank { message.spanishText }.ifBlank { "…" }
+    val lines = mutableListOf(primary)
+    if (message.romanized.isNotBlank() && message.romanized != primary) {
+        lines += message.romanized
+    }
+    val meaning = if (isUser) {
+        message.spanishMeaning.ifBlank { message.spanishText }
+    } else {
+        message.spanishMeaning
+    }
+    if (meaning.isNotBlank() && meaning !in lines) {
+        lines += meaning
+    }
+    return lines
+}
+
+/**
+ * "AI is typing" bubble — shown while [SimulationUiState.isSending] is true,
+ * which also disables the send button (see [SimulationInputBar]) so the user
+ * can't fire a second /simulate call on top of one already in flight.
+ *
+ * Fix: was a plain spinner + static "Escribiendo…" text; now shows 3 small
+ * bouncing dots (like a real chat app's typing indicator) after the label.
+ * Fix: once [showRetryHint] is true (request stuck 10s+, see
+ * [SimulationUiState.showSlowSendHint]), also shows a small inline
+ * "Reintentar" text button right next to it instead of leaving the user
+ * stuck staring at the dots until the full 45s timeout.
+ */
 @Composable
-private fun SimulationTypingBubble() {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+private fun SimulationTypingBubble(
+    englishUi: Boolean,
+    showRetryHint: Boolean = false,
+    onRetry: () -> Unit = {},
+) {
+    val texts = simCopy(englishUi)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Surface(
             shape = RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -551,10 +856,45 @@ private fun SimulationTypingBubble() {
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.size(8.dp))
-                Text("Escribiendo…", style = MaterialTheme.typography.bodySmall)
+                Text(texts.typing, style = MaterialTheme.typography.bodySmall)
+                TypingDots(modifier = Modifier.padding(start = 4.dp))
             }
+        }
+        if (showRetryHint) {
+            Spacer(Modifier.size(6.dp))
+            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                Text(texts.retry, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/** 3 small dots, each bouncing in alpha with a staggered delay — "…" but animated. */
+@Composable
+private fun TypingDots(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "typingDots")
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.25f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(
+                        durationMillis = 600,
+                        delayMillis = index * 150,
+                        easing = LinearEasing,
+                    ),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "dot$index",
+            )
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 1.5.dp)
+                    .size(5.dp)
+                    .alpha(alpha)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
+            )
         }
     }
 }
@@ -570,10 +910,12 @@ private fun SimulationInputBar(
     isListening: Boolean,
     hasMicPermission: Boolean,
     language: SimulationLanguage,
+    englishUi: Boolean,
     onInputTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onMicToggle: () -> Unit,
 ) {
+    val texts = simCopy(englishUi)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -586,10 +928,15 @@ private fun SimulationInputBar(
             onValueChange = onInputTextChange,
             modifier = Modifier.weight(1f),
             // Fix: hint used to always say "Escribe en español…" regardless
-            // of the practiced language. Now it follows language.inputHint
-            // (ja/ko/zh/en), matching the mic/STT locale below.
-            placeholder = { Text(language.inputHint) },
+            // of the practiced language. Now it follows language.hint()
+            // (ja/ko/zh/en, in Spanish or English depending on englishUi),
+            // matching the mic/STT locale below.
+            placeholder = { Text(language.hint(englishUi)) },
             singleLine = false,
+            // Fix (#1): disabled while a /simulate call is in flight so the
+            // user can't queue up a second message on top of one already
+            // being answered — same isSending flag that shows the animated
+            // "Escribiendo…" bubble below.
             enabled = !isSending,
         )
 
@@ -610,9 +957,9 @@ private fun SimulationInputBar(
             Icon(
                 imageVector = if (isListening) Icons.Default.Stop else Icons.Default.Mic,
                 contentDescription = if (isListening) {
-                    "Detener micrófono"
+                    texts.stopMic
                 } else {
-                    "Hablar en ${language.displayName}"
+                    "${texts.speakIn} ${language.label(englishUi)}"
                 },
                 tint = if (isListening) {
                     Color.White
@@ -624,6 +971,10 @@ private fun SimulationInputBar(
 
         IconButton(
             onClick = onSend,
+            // Fix (#1): send button disabled while sending (isSending) OR
+            // while empty — prevents a double /simulate call from a fast
+            // double-tap on top of the isSending guard in
+            // SimulationViewModel.onSendMessage.
             enabled = !isSending && inputText.isNotBlank(),
             modifier = Modifier
                 .size(48.dp)
@@ -636,7 +987,7 @@ private fun SimulationInputBar(
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Enviar",
+                contentDescription = texts.send,
                 tint = Color.White,
             )
         }

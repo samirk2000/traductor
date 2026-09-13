@@ -1,4 +1,135 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default (English) strings. This file is the fallback used whenever the
+  app's UI language is English — driven by MainViewModel's derived
+  UiLanguage (see ui/localization/Localization.kt), NOT the device's
+  system locale. When the user picks English as the "Origen" (source)
+  language in the Translator tab, every screen pulls its copy from here.
+-->
 <resources>
-    <string name="app_name" translatable="false">Traductor de Voz</string>
+    <string name="app_name" translatable="false">Voice Translator</string>
+
+    <!-- Top-level tabs -->
+    <string name="tab_translator">Translator</string>
+    <string name="tab_phrasebook">Phrasebook</string>
+    <string name="tab_simulation">Simulation</string>
+
+    <!-- Translator header bar -->
+    <string name="subtitles">Subtitles</string>
+    <string name="live_mode">Live Mode</string>
+    <string name="live_mode_active">• Live</string>
+    <string name="delete_history_cd">Delete history</string>
+    <string name="settings_cd">Settings</string>
+    <string name="menu_source_destination">Source and destination</string>
+    <string name="source">Source</string>
+    <string name="destination">Destination</string>
+    <string name="choose_different_languages">Choose different languages</string>
+    <string name="speak_on_translate">Speak when translating</string>
+    <string name="show_japanese_kana">Show Japanese (kana)</string>
+    <string name="show_korean_hangul">Show Korean (hangul)</string>
+    <string name="offline_mode">Offline mode</string>
+    <string name="downloading_model">Downloading model…</string>
+    <string name="download_model_online">Download model online</string>
+    <string name="model_downloaded">Model downloaded</string>
+    <string name="offline_models_header">Offline Models</string>
+    <string name="downloaded">Downloaded</string>
+    <string name="downloading_percent">Downloading… %1$d%%</string>
+    <string name="not_downloaded">Not downloaded</string>
+    <string name="download_model_for_cd">Download model for %1$s</string>
+    <string name="open_settings">Open Settings</string>
+    <string name="close">Close</string>
+    <string name="cancel">Cancel</string>
+    <string name="download">Download</string>
+    <string name="missing_offline_model_title">Missing offline model</string>
+    <string name="missing_offline_model_body">The offline model for %1$s is missing (~%2$d MB). Download it now so you can translate offline?</string>
+
+    <!-- Translation display -->
+    <string name="translating">Translating...</string>
+    <string name="press_mic_hint">Press the microphone and speak in %1$s.</string>
+    <string name="listened_label">You heard:</string>
+    <string name="alternatives">Alternatives</string>
+    <string name="play">Play</string>
+    <string name="reply_in_language">Reply in %1$s</string>
+    <string name="choose_how_to_reply">Choose how to reply</string>
+    <string name="listening_hint">Listening: %1$s...</string>
+
+    <!-- Mic row / typing dialogs -->
+    <string name="speak_in">Speak in %1$s</string>
+    <string name="listen_in">Listen %1$s</string>
+    <string name="write">Write</string>
+    <string name="write_in">Write in %1$s</string>
+    <string name="write_in_spanish">Write in Spanish</string>
+    <string name="frase_en">Phrase in %1$s</string>
+    <string name="type_it_hint">Speech recognition sometimes fails. Write the phrase you want to translate.</string>
+    <string name="type_it_hint_foreign">Speech recognition sometimes fails. Write the phrase in %1$s.</string>
+    <string name="translate_action">Translate</string>
+    <string name="voice_offline_guidance_close">Close</string>
+    <string name="stop">Stop</string>
+    <string name="stop_x">Stop %1$s</string>
+    <string name="mic_permission_required">Microphone permission is required.</string>
+    <string name="no_text_captured">No text was captured.</string>
+    <string name="nothing_to_translate">Write something to translate.</string>
+    <string name="model_already_downloaded">The model is already downloaded.</string>
+    <string name="could_not_download_model">Couldn\'t download the model.</string>
+    <string name="could_not_download_model_for">Couldn\'t download the model for %1$s.</string>
+    <string name="unexpected_error">An unexpected error occurred.</string>
+    <string name="offline_translation_error">Offline translation error.</string>
+    <string name="translation_error">Error translating.</string>
+    <string name="voice_offline_guidance">This language has no offline speech recognition on your phone. Go to Settings &gt; Offline voice and download the pack if it\'s available; if it\'s not listed, your device doesn\'t support it offline — use text mode or turn off airplane mode to recognize by voice.</string>
+
+    <!-- Live conversation -->
+    <string name="live_turn_paused">Listening for %1$s paused</string>
+    <string name="live_turn_speaking">You are speaking…</string>
+    <string name="live_turn_listening">Listening to %1$s…</string>
+    <string name="live_conversation_default">Live conversation</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="live_empty_hint">Press the button below to speak,\nor tap a suggestion to reply.</string>
+    <string name="suggestions_reply">Reply suggestions</string>
+    <string name="show">Show</string>
+    <string name="hide">Hide</string>
+    <string name="write_in_language">Write in %1$s</string>
+    <string name="write_in_spanish_helper">Write in Spanish, useful when the other person prefers to type on your phone instead of speaking.</string>
+    <string name="you_label">YOU</string>
+    <string name="they_label">THEM</string>
+
+    <!-- History -->
+    <string name="history_label">History</string>
+    <string name="exit_subtitles_cd">Exit subtitles</string>
+
+    <!-- Pipeline status -->
+    <string name="status_idle">Ready</string>
+    <string name="status_listening">Listening...</string>
+    <string name="status_translating">Translating...</string>
+    <string name="status_speaking">Playing</string>
+
+    <!-- Language display names (independent of Language.kt's Spanish-only displayName) -->
+    <string name="lang_spanish">Spanish</string>
+    <string name="lang_english">English</string>
+    <string name="lang_japanese">Japanese</string>
+    <string name="lang_korean">Korean</string>
+    <string name="lang_chinese">Chinese</string>
+
+    <!-- Phrasebook -->
+    <string name="phrasebook_title">Phrasebook</string>
+    <string name="phrasebook_subtitle">Essential phrases in %1$s</string>
+    <string name="search_in_spanish">Search in Spanish…</string>
+    <string name="search_in_english">Search in English…</string>
+    <string name="clear_search_cd">Clear search</string>
+    <string name="category_all">All</string>
+    <string name="category_courtesy">Courtesy</string>
+    <string name="category_prices">Prices</string>
+    <string name="category_shopping">Shopping</string>
+    <string name="category_restaurant">Restaurant</string>
+    <string name="category_transport">Transport</string>
+    <string name="category_hotel">Hotel</string>
+    <string name="category_directions">Directions</string>
+    <string name="category_basic">Basic</string>
+    <string name="category_casual_conversation">Conversation</string>
+    <string name="category_emergency">Emergency</string>
+    <string name="favorites_chip">★ Favorites</string>
+    <string name="no_phrases_found">No phrases found.</string>
+    <string name="remove_favorite_cd">Remove from favorites</string>
+    <string name="add_favorite_cd">Add to favorites</string>
+    <string name="listen_cd">Listen</string>
 </resources>

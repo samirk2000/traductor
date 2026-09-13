@@ -1,12 +1,35 @@
 /**
+ * The app's UI language (independent from the language being listened to /
+ * practiced) that drives what language "meaning"/"gloss" fields come back
+ * in — see [MEANING_LANGUAGE_LABELS]. Defaults to "es" for backward
+ * compatibility with clients that never send `meaningLang`.
+ */
+const MEANING_LANGUAGE_LABELS: Record<string, string> = {
+  es: 'español mexicano natural',
+  en: 'natural English',
+}
+
+function meaningLangLabel(meaningLang?: string): string {
+  return MEANING_LANGUAGE_LABELS[meaningLang ?? 'es'] ?? MEANING_LANGUAGE_LABELS.es
+}
+
+/**
  * "converse": used for every THEM turn in the app's Live Conversation mode.
- * Translates the foreign speaker's phrase into Mexican Spanish and generates
- * short reply suggestions (romaji + spanish meaning + native kana) the
+ * Translates the foreign speaker's phrase into the app's UI language and
+ * generates short reply suggestions (romaji + meaning + native kana) the
  * traveler can tap to answer back. Mirrors what
  * DeepSeekPromptBuilder.SYSTEM_JAPANESE_INPUT/SYSTEM_KOREAN_INPUT/
  * SYSTEM_ENGLISH_INPUT used to do directly from the Android client.
+ *
+ * Fix: the "meaning"/"spanish" field used to be hardcoded to always come
+ * back in Spanish, even when the app's UI language (Origen selector) was
+ * English — so "Listen Japanese"/Live mode kept showing Spanish meanings
+ * under an all-English UI. Now parameterized by [meaningLangLabel] so it
+ * matches whatever language the client asks for via `meaningLang`.
  */
-const SYSTEM_CONVERSE = `You are an expert real-time interpreter for a Mexican traveler listening to a native speaker of the given language. Translate the input into natural Mexican Spanish, capturing the exact intent, tone, and politeness level. Also generate 2 short, natural, highly appropriate response suggestions the traveler can reply with. Each suggestion must be an object with THREE fields: "romaji" (the reply in a Spanish-reader-friendly phonetic/romanized form, no native script), "spanish" (its short meaning in Spanish), and "kana" (the SAME reply written in the target language's native script so a native speaker can read it; for English this may equal romaji). Return JSON ONLY with format: {"mainTranslation": "Traducción natural al español mexicano", "replySuggestions": [{"romaji": "...", "spanish": "...", "kana": "..."}, {"romaji": "...", "spanish": "...", "kana": "..."}]}. Do not output explanations, quotes, or extra text.`
+function systemConverse(langLabel: string): string {
+  return `You are an expert real-time interpreter for a traveler listening to a native speaker of the given language. Translate the input into natural ${langLabel}, capturing the exact intent, tone, and politeness level. Also generate 2 short, natural, highly appropriate response suggestions the traveler can reply with. Each suggestion must be an object with THREE fields: "romaji" (the reply in a phonetic/romanized form, no native script), "spanish" (its short meaning in ${langLabel}), and "kana" (the SAME reply written in the target language's native script so a native speaker can read it; for English this may equal romaji). Return JSON ONLY with format: {"mainTranslation": "Traducción natural al idioma pedido", "replySuggestions": [{"romaji": "...", "spanish": "...", "kana": "..."}, {"romaji": "...", "spanish": "...", "kana": "..."}]}. Do not output explanations, quotes, or extra text.`
+}
 
 /**
  * "explain": used only when the user explicitly taps an optional "explicar"
@@ -27,8 +50,10 @@ const SYSTEM_KO_PHONETIC = `Eres un traductor Español -> Coreano con pronunciac
  * The AI roleplays as a native speaker of the target language inside a
  * chosen real-life scenario — it must NEVER act as a translator/assistant,
  * only as the character. Always replies fully in the target language, plus
- * its own romanization and Spanish meaning so the client can render the
- * "kana/hangul grande + romaji chico + traducción" layout.
+ * its own romanization and meaning so the client can render the
+ * "kana/hangul grande + romaji chico + traducción" layout. See
+ * [systemSimulate]'s fix note for why this no longer also returns
+ * suggestions or a full re-translation of the user's own message.
  */
 const SCENARIO_LABELS: Record<string, string> = {
   tienda: 'una tienda o comercio, tú eres el dependiente/vendedor',
@@ -45,17 +70,39 @@ const LANGUAGE_LABELS: Record<string, string> = {
   en: 'inglés',
 }
 
-function systemSimulate(scenario: string, language: string): string {
+/**
+ * @param meaningLangLabel language the "replySpanish"/"correction" fields
+ *   must come back in (see [meaningLangLabel]/[MEANING_LANGUAGE_LABELS]).
+ *
+ * Fix: the response used to require 7 fields — native/romanized/spanish for
+ * the AI's own reply, userNative/userRomanized/userSpanish re-translating
+ * the user's own last message, AND 2-3 full replySuggestions objects — all
+ * in one DeepSeek call. That's ~500-600 output tokens, and once the
+ * conversation history grew past ~8 turns the combined input+output made
+ * DeepSeek regularly exceed 8s, tripping the client's timeout ("Servidor
+ * ocupado" hang at the 9th message). Trimmed to 4 short fields (~150-280
+ * tokens): the AI's own reply (3 forms) plus a single optional one-line
+ * "correction" of the user's last message instead of a full 3-form
+ * retranslation. Suggestions moved entirely to the separate, on-demand
+ * POST /suggestions (see [systemSuggestions]) so they're no longer
+ * generated on every turn — only when the user actually asks for help.
+ */
+function systemSimulate(scenario: string, language: string, meaningLangLabel: string): string {
   const scenarioLabel = SCENARIO_LABELS[scenario] ?? scenario
   const languageLabel = LANGUAGE_LABELS[language] ?? language
-  // NOTE: the user's own turn can now come typed/spoken in either the
-  // practiced language OR Spanish (the Android client's STT/hint switched
-  // to the practiced language, but nothing blocks typing Spanish) — the
-  // model must accept both. It must also return the romanization + Spanish
-  // meaning of the USER'S last message (userRomanized/userSpanish) so the
-  // client can render those under the user's own chat bubble, exactly like
-  // it already does for its own reply (native/romanized/spanish).
-  return `Eres un hablante nativo de ${languageLabel} actuando en este escenario de la vida real: ${scenarioLabel}. Debes actuar SIEMPRE como ese personaje, nunca como traductor ni asistente de IA, y nunca cambies de idioma. Responde ÚNICAMENTE en ${languageLabel} (en su escritura nativa), de forma breve (1-2 frases), natural y coherente con el escenario y el historial reciente de la conversación. El usuario puede escribirte tanto en ${languageLabel} (está practicando) como en español; entiendes ambos perfectamente y tú siempre respondes en ${languageLabel}. Después entrega también: la romanización/lectura fonética latina de tu respuesta, su traducción breve al español, y —muy importante— la romanización y la traducción breve al español del ÚLTIMO mensaje que el usuario te acaba de escribir a ti (si el usuario ya escribió en español, usa ese mismo texto como "userSpanish" y da su romanización aproximada en "userRomanized" solo si aplica, o repite el texto si no aplica). Devuelve SOLO un objeto JSON, sin texto ni comillas adicionales, con este formato exacto: {"native": "tu respuesta en la escritura nativa del idioma (kana/kanji para japonés, hangul para coreano, hanzi para chino)", "romanized": "romanización o lectura fonética en alfabeto latino de esa misma respuesta", "spanish": "traducción breve al español de tu respuesta", "userRomanized": "romanización/lectura fonética del último mensaje del usuario", "userSpanish": "traducción breve al español del último mensaje del usuario"}.`
+  return `Hablante nativo de ${languageLabel} en: ${scenarioLabel}. Actua siempre como ese personaje, nunca traductor/IA, nunca cambies de idioma. Responde SOLO en ${languageLabel} (escritura nativa), 1-2 frases, natural, coherente con el historial. El usuario puede escribirte en ${languageLabel} o en cualquier otro idioma. Si su último mensaje tiene un error gramatical o de vocabulario en ${languageLabel}, pon una corrección MUY breve en "correction" (en ${meaningLangLabel}, ej. "Mejor: ..."); si ya estaba bien o no fue en ${languageLabel}, deja correction vacío (""). Responde SOLO este JSON, nada de texto extra: {"replyNative":"tu respuesta en escritura nativa","replyRomaji":"su romanización","replySpanish":"su significado breve en ${meaningLangLabel}","correction":""}`
+}
+
+/**
+ * "suggestions": powers the on-demand "¿No sabes cómo decirlo?" helper in
+ * Simulation Mode — only called when the user explicitly taps it, NOT on
+ * every turn (see [systemSimulate]'s fix note). Generates 3 short, natural
+ * ways the user could reply next, given the recent conversation.
+ */
+function systemSuggestions(scenario: string, language: string, meaningLangLabel: string): string {
+  const scenarioLabel = SCENARIO_LABELS[scenario] ?? scenario
+  const languageLabel = LANGUAGE_LABELS[language] ?? language
+  return `Hablante nativo de ${languageLabel} en: ${scenarioLabel}. Dado el historial de la conversación, da EXACTAMENTE 3 sugerencias breves y naturales (diferentes entre sí) de qué podría responder el usuario a continuación, en ${languageLabel}. Responde SOLO este JSON: {"suggestions":[{"native":"","romanized":"","spanish":"significado en ${meaningLangLabel}"},{"native":"","romanized":"","spanish":""},{"native":"","romanized":"","spanish":""}]}`
 }
 
 export interface SimulateTurnDto {
@@ -63,12 +110,29 @@ export interface SimulateTurnDto {
   text: string
 }
 
-export interface SimulateResult {
+/** One suggested way the practicing user could reply next, in 3 parallel forms. */
+export interface SimulateSuggestionDto {
   native: string
   romanized: string
   spanish: string
-  userRomanized: string
-  userSpanish: string
+}
+
+/**
+ * Result of POST /simulate — trimmed to 4 short fields (see [systemSimulate]'s
+ * fix note) to keep output tokens low and avoid the "Servidor ocupado"
+ * timeouts that used to hit around the 9th message.
+ */
+export interface SimulateResult {
+  replyNative: string
+  replyRomaji: string
+  replySpanish: string
+  /** Brief correction of the user's last message, or "" if none needed. */
+  correction: string
+}
+
+/** Result of POST /suggestions — 3 contextual "what to say next" options. */
+export interface SuggestionsResult {
+  suggestions: SimulateSuggestionDto[]
 }
 
 /**
@@ -134,6 +198,11 @@ async function callDeepSeekRaw(
   apiKey: string,
   systemPrompt: string,
   userContent: string,
+  // Fix: was a flat 512 for every route — /simulate's old 7-field response
+  // needed most of that, but the new 4-field shape (see systemSimulate)
+  // only needs ~280 to leave headroom, so it's now overridable per call
+  // instead of always paying for the biggest possible response.
+  maxTokens = 512,
 ): Promise<string> {
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
@@ -144,7 +213,7 @@ async function callDeepSeekRaw(
     body: JSON.stringify({
       model: 'deepseek-chat',
       temperature: 0.1,
-      max_tokens: 512,
+      max_tokens: maxTokens,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
@@ -174,10 +243,11 @@ export async function callConverse(
   apiKey: string,
   text: string,
   foreignLang: string,
+  meaningLang?: string,
 ): Promise<ConverseResult> {
   const raw = await callDeepSeekRaw(
     apiKey,
-    SYSTEM_CONVERSE,
+    systemConverse(meaningLangLabel(meaningLang)),
     `Diálogo: Traduce y responde siguiendo el sistema. Entrada en ${foreignLang}: "${text}"`,
   )
   const parsed = parseJsonLoose<{ mainTranslation?: string; replySuggestions?: ReplySuggestionDto[] }>(raw)
@@ -230,33 +300,81 @@ export async function callSimulate(
   language: string,
   history: SimulateTurnDto[],
   userMessage: string,
+  meaningLang?: string,
 ): Promise<SimulateResult> {
   const historyText = history
-    .map((turn) => `${turn.role === 'user' ? 'Usuario (habló en español)' : 'Tú (tu respuesta previa)'}: ${turn.text}`)
+    .map((turn) => `${turn.role === 'user' ? 'Usuario' : 'Tú (tu respuesta previa)'}: ${turn.text}`)
     .join('\n')
 
   const userContent = [
     historyText ? `Historial reciente de la conversación:\n${historyText}` : null,
-    `Nuevo mensaje del usuario, dicho en español: "${userMessage}"`,
+    // Fix: used to hardcode "dicho en español", biasing the model to treat
+    // every input as Spanish even when the user typed English (or the
+    // practiced language itself) — now left neutral so the system prompt's
+    // "español O inglés" rule actually applies.
+    `Nuevo mensaje del usuario: "${userMessage}"`,
     'Responde siguiendo estrictamente las instrucciones del sistema.',
   ]
     .filter(Boolean)
     .join('\n\n')
 
-  const raw = await callDeepSeekRaw(apiKey, systemSimulate(scenario, language), userContent)
+  const raw = await callDeepSeekRaw(
+    apiKey,
+    systemSimulate(scenario, language, meaningLangLabel(meaningLang)),
+    userContent,
+    // Fix: 280 (was the shared 512) — the trimmed 4-field JSON response
+    // never needs more than ~200 tokens; capping it lower also means
+    // DeepSeek can't ramble past the point of usefulness and cuts latency.
+    280,
+  )
   const parsed = parseJsonLoose<{
-    native?: string
-    romanized?: string
-    spanish?: string
-    userRomanized?: string
-    userSpanish?: string
+    replyNative?: string
+    replyRomaji?: string
+    replySpanish?: string
+    correction?: string
   }>(raw)
   return {
-    native: parsed?.native?.trim() || raw.trim(),
-    romanized: parsed?.romanized?.trim() || '',
-    spanish: parsed?.spanish?.trim() || '',
-    userRomanized: parsed?.userRomanized?.trim() || '',
-    userSpanish: parsed?.userSpanish?.trim() || '',
+    replyNative: parsed?.replyNative?.trim() || raw.trim(),
+    replyRomaji: parsed?.replyRomaji?.trim() || '',
+    replySpanish: parsed?.replySpanish?.trim() || '',
+    correction: parsed?.correction?.trim() || '',
+  }
+}
+
+/**
+ * POST /suggestions — 3 contextual "what could I say next" options, called
+ * ONLY when the user taps "¿No sabes cómo decirlo?" in Simulation Mode
+ * (never automatically per-turn — see [systemSimulate]'s fix note for why).
+ */
+export async function callSuggestions(
+  apiKey: string,
+  scenario: string,
+  language: string,
+  history: SimulateTurnDto[],
+  meaningLang?: string,
+): Promise<SuggestionsResult> {
+  const historyText = history
+    .map((turn) => `${turn.role === 'user' ? 'Usuario' : 'Tú (tu respuesta previa)'}: ${turn.text}`)
+    .join('\n')
+  const userContent = historyText
+    ? `Historial reciente de la conversación:\n${historyText}\n\nDa las 3 sugerencias siguiendo el sistema.`
+    : 'Aún no hay historial. Da 3 sugerencias iniciales típicas para empezar esta conversación.'
+
+  const raw = await callDeepSeekRaw(
+    apiKey,
+    systemSuggestions(scenario, language, meaningLangLabel(meaningLang)),
+    userContent,
+    220,
+  )
+  const parsed = parseJsonLoose<{ suggestions?: { native?: string; romanized?: string; spanish?: string }[] }>(raw)
+  return {
+    suggestions: (parsed?.suggestions ?? [])
+      .filter((s) => !!s.native)
+      .map((s) => ({
+        native: s.native as string,
+        romanized: s.romanized?.trim() || (s.native as string),
+        spanish: s.spanish?.trim() || '',
+      })),
   }
 }
 

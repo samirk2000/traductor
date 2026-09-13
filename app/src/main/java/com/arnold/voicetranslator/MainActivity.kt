@@ -101,11 +101,15 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.arnold.voicetranslator.data.model.Language
 import com.arnold.voicetranslator.data.model.ReplySuggestion
 import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.simulation.SimulationModeScreen
 import com.arnold.voicetranslator.simulation.SimulationViewModel
 import com.arnold.voicetranslator.ui.MainViewModel
+import com.arnold.voicetranslator.ui.localization.UiLanguage
+import com.arnold.voicetranslator.ui.localization.localized
+import com.arnold.voicetranslator.ui.localization.localizedName
 import com.arnold.voicetranslator.ui.phrasebook.PhrasebookScreen
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
@@ -114,7 +118,7 @@ import com.arnold.voicetranslator.ui.state.OfflineModelInfo
 import com.arnold.voicetranslator.ui.state.PipelineStatus
 import com.arnold.voicetranslator.ui.state.TranslationHistoryItem
 import com.arnold.voicetranslator.ui.state.TranslatorUiState
-import com.arnold.voicetranslator.ui.state.statusText
+import com.arnold.voicetranslator.ui.state.localizedText
 
 class MainActivity : ComponentActivity() {
 
@@ -128,6 +132,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             VoiceTranslatorTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+                // App-wide UI language: EVERY screen's chrome (tabs, menus,
+                // buttons, hints) follows this, not just the translated
+                // content — derived from the Traductor's Origen selector
+                // (Origen = Inglés -> whole app in English).
+                val uiLanguage = state.uiLanguage
 
                 // Top-level tab switcher: "Traductor" (existing en vivo /
                 // subtítulos flow, untouched below) vs the new, fully
@@ -146,16 +156,20 @@ class MainActivity : ComponentActivity() {
                         .statusBarsPadding()
                         .consumeWindowInsets(WindowInsets.statusBars),
                 ) {
-                    AppTabBar(selected = selectedTab, onSelect = { selectedTab = it })
+                    AppTabBar(selected = selectedTab, uiLanguage = uiLanguage, onSelect = { selectedTab = it })
 
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTab) {
                             AppTab.TRANSLATOR -> TranslatorScreen(
                                 state = state,
+                                uiLanguage = uiLanguage,
                                 onPermissionResult = viewModel::onPermissionResult,
                                 onSpeakSpanish = viewModel::onSpeakSpanishToggle,
                                 onListenJapanese = viewModel::onListenJapaneseToggle,
                                 onSelectLanguage = viewModel::onSelectLanguage,
+                                onSelectSourceLanguage = viewModel::onSelectSourceLanguage,
+                                onSelectDestinationLanguage = viewModel::onSelectDestinationLanguage,
+                                onSwapLanguages = viewModel::onSwapLanguages,
                                 onToggleOffline = viewModel::onToggleOfflineMode,
                                 onDownloadModel = viewModel::onDownloadModel,
                                 onReplay = viewModel::onReplay,
@@ -183,6 +197,10 @@ class MainActivity : ComponentActivity() {
                                 // so the Fraseario always filters to the
                                 // currently selected language.
                                 targetLanguage = state.targetLanguage,
+                                // Origen selector: the "meaning" line follows
+                                // whatever Origen the user picked in Traductor.
+                                originLanguage = state.sourceLanguage,
+                                uiLanguage = uiLanguage,
                             )
 
                             AppTab.SIMULATION -> {
@@ -190,6 +208,7 @@ class MainActivity : ComponentActivity() {
                                 SimulationModeScreen(
                                     viewModel = simulationViewModel,
                                     modifier = Modifier.fillMaxSize(),
+                                    appUiLanguage = uiLanguage,
                                 )
                             }
                         }
@@ -236,14 +255,21 @@ fun VoiceTranslatorTheme(content: @Composable () -> Unit) {
 // the existing Traductor/En vivo/Subtítulos flow below).
 // ===========================================================================
 
-private enum class AppTab(val label: String) {
-    TRANSLATOR("Traductor"),
-    PHRASEBOOK("Fraseario"),
-    SIMULATION("Modo Simulación"),
+private enum class AppTab {
+    TRANSLATOR,
+    PHRASEBOOK,
+    SIMULATION,
 }
 
 @Composable
-private fun AppTabBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
+private fun AppTab.label(uiLanguage: UiLanguage): String = when (this) {
+    AppTab.TRANSLATOR -> localized(uiLanguage, R.string.tab_translator)
+    AppTab.PHRASEBOOK -> localized(uiLanguage, R.string.tab_phrasebook)
+    AppTab.SIMULATION -> localized(uiLanguage, R.string.tab_simulation)
+}
+
+@Composable
+private fun AppTabBar(selected: AppTab, uiLanguage: UiLanguage, onSelect: (AppTab) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -270,7 +296,7 @@ private fun AppTabBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
                 ),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                Text(tab.label, style = MaterialTheme.typography.labelLarge)
+                Text(tab.label(uiLanguage), style = MaterialTheme.typography.labelLarge)
             }
         }
     }
@@ -283,10 +309,14 @@ private fun AppTabBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
 @Composable
 private fun TranslatorScreen(
     state: TranslatorUiState,
+    uiLanguage: UiLanguage,
     onPermissionResult: (Boolean) -> Unit,
     onSpeakSpanish: () -> Unit,
     onListenJapanese: () -> Unit,
     onSelectLanguage: (TargetLanguage) -> Unit,
+    onSelectSourceLanguage: (Language) -> Unit,
+    onSelectDestinationLanguage: (Language) -> Unit,
+    onSwapLanguages: () -> Unit,
     onToggleOffline: (Boolean) -> Unit,
     onDownloadModel: () -> Unit,
     onReplay: () -> Unit,
@@ -342,7 +372,13 @@ private fun TranslatorScreen(
         ) {
             HeaderBar(
                 selected = state.targetLanguage,
+                uiLanguage = uiLanguage,
                 onSelect = onSelectLanguage,
+                sourceLanguage = state.sourceLanguage,
+                destinationLanguage = state.destinationLanguage,
+                onSelectSourceLanguage = onSelectSourceLanguage,
+                onSelectDestinationLanguage = onSelectDestinationLanguage,
+                onSwapLanguages = onSwapLanguages,
                 offlineMode = state.isOfflineMode,
                 modelDownloaded = state.isModelDownloaded,
                 downloading = state.isDownloadingModel,
@@ -390,10 +426,10 @@ private fun TranslatorScreen(
                                 )
                                 onDismissVoiceOfflineGuidance()
                             }) {
-                                Text("Abrir Ajustes")
+                                Text(localized(uiLanguage, R.string.open_settings))
                             }
                             TextButton(onClick = onDismissVoiceOfflineGuidance) {
-                                Text("Cerrar")
+                                Text(localized(uiLanguage, R.string.voice_offline_guidance_close))
                             }
                         }
                     }
@@ -406,6 +442,7 @@ private fun TranslatorScreen(
                 // Live chat view: bubbles for TÚ/ELLOS plus the controls.
                 LiveConversationView(
                     state = state,
+                    uiLanguage = uiLanguage,
                     onLiveSpeakSpanish = onLiveSpeakSpanish,
                     onLiveSuggestionTapped = onLiveSuggestionTapped,
                     onToggleLiveListeningPause = onToggleLiveListeningPause,
@@ -416,12 +453,13 @@ private fun TranslatorScreen(
                         .weight(1f),
                 )
             } else {
-                StatusIndicator(status = state.status)
+                StatusIndicator(status = state.status, uiLanguage = uiLanguage)
 
                 Spacer(Modifier.size(12.dp))
 
                 TranslationDisplay(
                     state = state,
+                    uiLanguage = uiLanguage,
                     onReplay = onReplay,
                     onSuggestionTapped = onSuggestionTapped,
                     modifier = Modifier
@@ -433,6 +471,7 @@ private fun TranslatorScreen(
                     Spacer(Modifier.size(12.dp))
                     HistoryFeed(
                         history = state.historyList,
+                        uiLanguage = uiLanguage,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(0.38f),
@@ -441,12 +480,31 @@ private fun TranslatorScreen(
 
                 Spacer(Modifier.size(12.dp))
 
+                // Live "Escuchando: ..." hint while the standard mic is
+                // capturing, so the user can see what's being heard before
+                // the recognizer finalizes — same idea as the live-mode
+                // transcript, but for the regular Hablar/Escuchar mics.
+                if (state.isListening && state.partialTranscript.isNotBlank()) {
+                    Text(
+                        localized(uiLanguage, R.string.listening_hint, state.partialTranscript),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                    )
+                }
+
                 ConversationMicRow(
                     enabled = state.hasMicPermission,
                     isBusy = state.isTranslating || state.isSpeaking,
                     listeningSpanish = listeningSpanish,
                     listeningForeign = listeningForeign,
+                    uiLanguage = uiLanguage,
                     targetLanguage = state.targetLanguage,
+                    sourceLanguage = state.sourceLanguage,
+                    canTranslate = state.canTranslate,
                     onSpeakSpanish = onSpeakSpanish,
                     onListenJapanese = onListenJapanese,
                     onTranslateSpanishText = onTranslateSpanishText,
@@ -462,6 +520,7 @@ private fun TranslatorScreen(
                 pendingResult = state.result?.mainTranslation,
                 pendingRomaji = state.sourceRomaji ?: state.sourceText,
                 isTranslating = state.isTranslating,
+                uiLanguage = uiLanguage,
                 onExit = onToggleSubtitles,
             )
         }
@@ -474,22 +533,25 @@ private fun TranslatorScreen(
     state.missingOfflineModelPrompt?.let { target ->
         AlertDialog(
             onDismissRequest = onDismissMissingModelPrompt,
-            title = { Text("Falta el modelo offline") },
+            title = { Text(localized(uiLanguage, R.string.missing_offline_model_title)) },
             text = {
                 Text(
-                    "Falta el modelo offline de ${target.displayName} " +
-                        "(~${com.arnold.voicetranslator.data.offline.OfflineModelSize.approxMbFor(target)} MB). " +
-                        "¿Descargarlo ahora para poder traducir sin conexión?",
+                    localized(
+                        uiLanguage,
+                        R.string.missing_offline_model_body,
+                        target.localizedName(uiLanguage),
+                        com.arnold.voicetranslator.data.offline.OfflineModelSize.approxMbFor(target),
+                    ),
                 )
             },
             confirmButton = {
                 TextButton(onClick = onConfirmDownloadMissingModel) {
-                    Text("Descargar")
+                    Text(localized(uiLanguage, R.string.download))
                 }
             },
             dismissButton = {
                 TextButton(onClick = onDismissMissingModelPrompt) {
-                    Text("Cancelar")
+                    Text(localized(uiLanguage, R.string.cancel))
                 }
             },
         )
@@ -509,7 +571,13 @@ private fun TranslatorScreen(
 @Composable
 private fun HeaderBar(
     selected: TargetLanguage,
+    uiLanguage: UiLanguage,
     onSelect: (TargetLanguage) -> Unit,
+    sourceLanguage: Language,
+    destinationLanguage: Language,
+    onSelectSourceLanguage: (Language) -> Unit,
+    onSelectDestinationLanguage: (Language) -> Unit,
+    onSwapLanguages: () -> Unit,
     offlineMode: Boolean,
     modelDownloaded: Boolean,
     downloading: Boolean,
@@ -556,7 +624,7 @@ private fun HeaderBar(
                 ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text("Subtítulos")
+                Text(localized(uiLanguage, R.string.subtitles))
             }
 
             Spacer(Modifier.width(4.dp))
@@ -574,7 +642,13 @@ private fun HeaderBar(
                 ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text(if (liveActive) "• En vivo" else "En vivo")
+                Text(
+                    if (liveActive) {
+                        localized(uiLanguage, R.string.live_mode_active)
+                    } else {
+                        localized(uiLanguage, R.string.live_mode)
+                    },
+                )
             }
 
             Spacer(Modifier.width(4.dp))
@@ -587,7 +661,7 @@ private fun HeaderBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Borrar historial",
+                        contentDescription = localized(uiLanguage, R.string.delete_history_cd),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
@@ -602,7 +676,7 @@ private fun HeaderBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Ajustes",
+                        contentDescription = localized(uiLanguage, R.string.settings_cd),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
@@ -611,26 +685,31 @@ private fun HeaderBar(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
                 ) {
-                    // Language selector
+                    // Origen/Destino selector (replaces the old single
+                    // "Idioma de salida" dropdown): 2 pickers + a swap
+                    // button, so any of the 5 Language.kt entries can be
+                    // the source, not just always Spanish.
                     Text(
-                        "Idioma de salida",
+                        localized(uiLanguage, R.string.menu_source_destination),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
-                    TargetLanguage.entries.forEach { language ->
-                        val isSelected = language == selected
-                        DropdownMenuItem(
-                            text = { Text("${language.flagEmoji} ${language.displayName}") },
-                            leadingIcon = {
-                                if (isSelected) {
-                                    Icon(Icons.Default.Check, contentDescription = null)
-                                }
-                            },
-                            onClick = {
-                                onSelect(language)
-                                menuOpen = false
-                            },
+                    OrigenDestinoSelector(
+                        source = sourceLanguage,
+                        destination = destinationLanguage,
+                        uiLanguage = uiLanguage,
+                        onSelectSource = { onSelectSourceLanguage(it); menuOpen = false },
+                        onSelectDestination = { onSelectDestinationLanguage(it); menuOpen = false },
+                        onSwap = onSwapLanguages,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                    if (sourceLanguage == destinationLanguage) {
+                        Text(
+                            localized(uiLanguage, R.string.choose_different_languages),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                         )
                     }
                     HorizontalDivider(
@@ -640,7 +719,7 @@ private fun HeaderBar(
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Hablar al traducir", Modifier.weight(1f))
+                                Text(localized(uiLanguage, R.string.speak_on_translate), Modifier.weight(1f))
                                 Switch(
                                     checked = autoSpeakEnabled,
                                     onCheckedChange = onToggleAutoSpeak,
@@ -655,8 +734,8 @@ private fun HeaderBar(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         when (selected) {
-                                            TargetLanguage.KOREAN -> "Mostrar coreano (hangul)"
-                                            else -> "Mostrar japonés (kana)"
+                                            TargetLanguage.KOREAN -> localized(uiLanguage, R.string.show_korean_hangul)
+                                            else -> localized(uiLanguage, R.string.show_japanese_kana)
                                         },
                                         Modifier.weight(1f),
                                     )
@@ -672,7 +751,7 @@ private fun HeaderBar(
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Modo sin conexión", Modifier.weight(1f))
+                                Text(localized(uiLanguage, R.string.offline_mode), Modifier.weight(1f))
                                 Switch(
                                     checked = offlineMode,
                                     onCheckedChange = onToggleOffline,
@@ -686,7 +765,7 @@ private fun HeaderBar(
                         DropdownMenuItem(
                             text = {
                                 Column(Modifier.fillMaxWidth()) {
-                                    Text("Descargando modelo…")
+                                    Text(localized(uiLanguage, R.string.downloading_model))
                                     Spacer(Modifier.size(6.dp))
                                     LinearProgressIndicator(
                                         progress = { downloadProgress },
@@ -699,7 +778,7 @@ private fun HeaderBar(
                         )
                     } else {
                         DropdownMenuItem(
-                            text = { Text("Descargar modelo en línea") },
+                            text = { Text(localized(uiLanguage, R.string.download_model_online)) },
                             leadingIcon = {
                                 Icon(Icons.Default.CloudDownload, contentDescription = null)
                             },
@@ -713,7 +792,7 @@ private fun HeaderBar(
                     if (modelDownloaded) {
                         DropdownMenuItem(
                             leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
-                            text = { Text("Modelo descargado") },
+                            text = { Text(localized(uiLanguage, R.string.model_downloaded)) },
                             onClick = {},
                             enabled = false,
                         )
@@ -724,7 +803,7 @@ private fun HeaderBar(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                     )
                     Text(
-                        "Modelos Offline",
+                        localized(uiLanguage, R.string.offline_models_header),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -740,11 +819,103 @@ private fun HeaderBar(
                             OfflineModelCard(
                                 language = lang,
                                 info = info,
+                                uiLanguage = uiLanguage,
                                 onDownload = { onDownloadOfflineModelFor(lang) },
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Origen [flag Idioma ▾] ⇄ [flag Idioma ▾] Destino: 2 small pickers (each
+ * opens its own [DropdownMenu] of the 5 [Language] entries) plus a swap
+ * button between them. Fixes the old "traducción siempre asume ES->destino"
+ * limitation — Origen can now be any of the 5 languages, not just Spanish.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OrigenDestinoSelector(
+    source: Language,
+    destination: Language,
+    uiLanguage: UiLanguage,
+    onSelectSource: (Language) -> Unit,
+    onSelectDestination: (Language) -> Unit,
+    onSwap: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        LanguagePickerButton(
+            label = localized(uiLanguage, R.string.source),
+            selected = source,
+            uiLanguage = uiLanguage,
+            onSelect = onSelectSource,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onSwap, contentPadding = PaddingValues(horizontal = 4.dp)) {
+            Text("⇄", style = MaterialTheme.typography.titleMedium)
+        }
+        LanguagePickerButton(
+            label = localized(uiLanguage, R.string.destination),
+            selected = destination,
+            uiLanguage = uiLanguage,
+            onSelect = onSelectDestination,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguagePickerButton(
+    label: String,
+    selected: Language,
+    uiLanguage: UiLanguage,
+    onSelect: (Language) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        Column {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(
+                onClick = { expanded = true },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "${selected.flagEmoji} ${selected.localizedName(uiLanguage)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Language.entries.forEach { language ->
+                DropdownMenuItem(
+                    text = { Text("${language.flagEmoji} ${language.localizedName(uiLanguage)}") },
+                    leadingIcon = {
+                        if (language == selected) {
+                            Icon(Icons.Default.Check, contentDescription = null)
+                        }
+                    },
+                    onClick = {
+                        onSelect(language)
+                        expanded = false
+                    },
+                )
             }
         }
     }
@@ -759,6 +930,7 @@ private fun HeaderBar(
 private fun OfflineModelCard(
     language: TargetLanguage,
     info: OfflineModelInfo,
+    uiLanguage: UiLanguage,
     onDownload: () -> Unit,
 ) {
     Surface(
@@ -772,22 +944,22 @@ private fun OfflineModelCard(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("${language.flagEmoji} ${language.displayName}", modifier = Modifier.weight(1f))
+            Text("${language.flagEmoji} ${language.localizedName(uiLanguage)}", modifier = Modifier.weight(1f))
             when (info.status) {
                 ModelDownloadStatus.DOWNLOADED -> {
                     Icon(
                         Icons.Default.Cloud,
-                        contentDescription = "Descargado",
+                        contentDescription = localized(uiLanguage, R.string.downloaded),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text("Descargado", style = MaterialTheme.typography.labelSmall)
+                    Text(localized(uiLanguage, R.string.downloaded), style = MaterialTheme.typography.labelSmall)
                 }
                 ModelDownloadStatus.DOWNLOADING -> {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            "Descargando… ${(info.progress * 100).toInt()}%",
+                            localized(uiLanguage, R.string.downloading_percent, (info.progress * 100).toInt()),
                             style = MaterialTheme.typography.labelSmall,
                         )
                         Spacer(Modifier.size(4.dp))
@@ -799,7 +971,7 @@ private fun OfflineModelCard(
                 }
                 ModelDownloadStatus.NOT_DOWNLOADED -> {
                     Text(
-                        "No descargado",
+                        localized(uiLanguage, R.string.not_downloaded),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(end = 6.dp),
@@ -807,7 +979,11 @@ private fun OfflineModelCard(
                     IconButton(onClick = onDownload, modifier = Modifier.size(28.dp)) {
                         Icon(
                             Icons.Default.CloudDownload,
-                            contentDescription = "Descargar modelo de ${language.displayName}",
+                            contentDescription = localized(
+                                uiLanguage,
+                                R.string.download_model_for_cd,
+                                language.localizedName(uiLanguage),
+                            ),
                             modifier = Modifier.size(18.dp),
                         )
                     }
@@ -818,7 +994,7 @@ private fun OfflineModelCard(
 }
 
 @Composable
-private fun StatusIndicator(status: PipelineStatus) {
+private fun StatusIndicator(status: PipelineStatus, uiLanguage: UiLanguage) {
     val color = when (status) {
         PipelineStatus.Idle -> MaterialTheme.colorScheme.onSurfaceVariant
         PipelineStatus.Listening -> Color(0xFFFFC107)
@@ -835,7 +1011,7 @@ private fun StatusIndicator(status: PipelineStatus) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                current.statusText,
+                current.localizedText(uiLanguage),
                 style = MaterialTheme.typography.titleMedium,
                 color = color,
             )
@@ -850,6 +1026,7 @@ private fun StatusIndicator(status: PipelineStatus) {
 @Composable
 private fun TranslationDisplay(
     state: TranslatorUiState,
+    uiLanguage: UiLanguage,
     onReplay: () -> Unit,
     onSuggestionTapped: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -880,7 +1057,7 @@ private fun TranslationDisplay(
                     CircularProgressIndicator()
                     Spacer(Modifier.size(16.dp))
                     Text(
-                        "Traduciendo...",
+                        localized(uiLanguage, R.string.translating),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -888,7 +1065,7 @@ private fun TranslationDisplay(
 
                 result == null -> {
                     Text(
-                        "Pulsa el micrófono y habla en español.",
+                        localized(uiLanguage, R.string.press_mic_hint, state.sourceLanguage.localizedName(uiLanguage)),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -914,7 +1091,7 @@ private fun TranslationDisplay(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Text(
-                                        "Escuchaste:",
+                                        localized(uiLanguage, R.string.listened_label),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -988,12 +1165,15 @@ private fun TranslationDisplay(
                             ReplySuggestionCards(
                                 suggestions = structured,
                                 showKana = state.isShowKana,
+                                uiLanguage = uiLanguage,
                                 onSuggestionTapped = { romaji -> onSuggestionTapped(romaji) },
                                 enabled = !state.isSpeaking,
                             )
                         } else {
                             ResultSuggestions(
                                 suggestions = result.alternatives,
+                                uiLanguage = uiLanguage,
+                                targetLanguage = state.targetLanguage,
                                 onSuggestionTapped = onSuggestionTapped,
                                 enabled = !state.isSpeaking,
                             )
@@ -1010,7 +1190,7 @@ private fun TranslationDisplay(
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                         ) {
                             Text(
-                                "Alternativas",
+                                localized(uiLanguage, R.string.alternatives),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onPrimary,
                             )
@@ -1035,7 +1215,7 @@ private fun TranslationDisplay(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Reproducir")
+                        Text(localized(uiLanguage, R.string.play))
                     }
                 }
             }
@@ -1066,6 +1246,8 @@ private fun TranslationDisplay(
 @Composable
 private fun ResultSuggestions(
     suggestions: List<String>,
+    uiLanguage: UiLanguage,
+    targetLanguage: TargetLanguage,
     onSuggestionTapped: (String) -> Unit,
     enabled: Boolean,
 ) {
@@ -1085,7 +1267,7 @@ private fun ResultSuggestions(
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                "Responder en japonés",
+                localized(uiLanguage, R.string.reply_in_language, targetLanguage.localizedName(uiLanguage)),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimary,
             )
@@ -1106,7 +1288,7 @@ private fun ResultSuggestions(
                             Spacer(Modifier.width(4.dp))
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = "Leer en japonés",
+                                contentDescription = targetLanguage.localizedName(uiLanguage),
                                 modifier = Modifier.size(16.dp),
                             )
                         }
@@ -1127,6 +1309,7 @@ private fun ResultSuggestions(
 private fun ReplySuggestionCards(
     suggestions: List<ReplySuggestion>,
     showKana: Boolean,
+    uiLanguage: UiLanguage,
     onSuggestionTapped: (String) -> Unit,
     enabled: Boolean,
 ) {
@@ -1146,7 +1329,7 @@ private fun ReplySuggestionCards(
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                "Elige cómo responder",
+                localized(uiLanguage, R.string.choose_how_to_reply),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimary,
             )
@@ -1242,6 +1425,7 @@ private fun TypingDialog(
     hint: String,
     label: String,
     hintLocale: LocaleList,
+    uiLanguage: UiLanguage,
     typedText: String,
     onTypedTextChange: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -1277,10 +1461,10 @@ private fun TypingDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text("Traducir") }
+            TextButton(onClick = onConfirm) { Text(localized(uiLanguage, R.string.translate_action)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            TextButton(onClick = onDismiss) { Text(localized(uiLanguage, R.string.cancel)) }
         },
     )
 }
@@ -1300,7 +1484,13 @@ private fun ConversationMicRow(
     isBusy: Boolean,
     listeningSpanish: Boolean,
     listeningForeign: Boolean,
+    uiLanguage: UiLanguage,
     targetLanguage: TargetLanguage,
+    // Origen/Destino selector: the "Hablar en <Origen>" mic (left button)
+    // now reflects whatever Origen the user picked (not always Spanish),
+    // and is disabled — with an explicit hint — when Origen == Destino.
+    sourceLanguage: Language,
+    canTranslate: Boolean,
     onSpeakSpanish: () -> Unit,
     onListenJapanese: () -> Unit,
     onTranslateSpanishText: (String) -> Unit,
@@ -1310,30 +1500,11 @@ private fun ConversationMicRow(
     var showForeignDialog by remember { mutableStateOf(false) }
     var typedText by remember { mutableStateOf("") }
 
-    val listenLabel = when (targetLanguage) {
-        TargetLanguage.KOREAN -> "Escuchar Coreano"
-        TargetLanguage.ENGLISH -> "Escuchar Inglés"
-        TargetLanguage.CHINESE -> "Escuchar Chino"
-        TargetLanguage.JAPANESE -> "Escuchar Japonés"
-    }
-    val foreignLangName = when (targetLanguage) {
-        TargetLanguage.KOREAN -> "coreano"
-        TargetLanguage.ENGLISH -> "inglés"
-        TargetLanguage.CHINESE -> "chino"
-        TargetLanguage.JAPANESE -> "japonés"
-    }
-    val foreignHeading = when (targetLanguage) {
-        TargetLanguage.KOREAN -> "Escribir en coreano"
-        TargetLanguage.ENGLISH -> "Escribir en inglés"
-        TargetLanguage.CHINESE -> "Escribir en chino"
-        TargetLanguage.JAPANESE -> "Escribir en japonés"
-    }
-    val foreignHint = when (targetLanguage) {
-        TargetLanguage.KOREAN -> "El reconocimiento de voz a veces falla. Escribe la frase en coreano (한글) o en fonética."
-        TargetLanguage.ENGLISH -> "El reconocimiento de voz a veces falla. Escribe la frase en inglés."
-        TargetLanguage.CHINESE -> "El reconocimiento de voz a veces falla. Escribe la frase en chino (中文) o en pinyin."
-        TargetLanguage.JAPANESE -> "El reconocimiento de voz a veces falla. Escribe la frase, sea en japonés (かな/漢字) o en romaji."
-    }
+    val foreignLangName = targetLanguage.localizedName(uiLanguage)
+    val listenLabel = localized(uiLanguage, R.string.listen_in, foreignLangName)
+    val foreignHeading = localized(uiLanguage, R.string.write_in, foreignLangName)
+    val foreignHint = localized(uiLanguage, R.string.type_it_hint_foreign, foreignLangName)
+    val sourceLangName = sourceLanguage.localizedName(uiLanguage)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -1342,27 +1513,36 @@ private fun ConversationMicRow(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                 ModeMicButton(
-                    label = "Hablar en Español",
+                    label = localized(uiLanguage, R.string.speak_in, sourceLangName),
                     listening = listeningSpanish,
                     icon = { Icons.Default.RecordVoiceOver },
                     color = MaterialTheme.colorScheme.primary,
-                    enabled = enabled,
+                    enabled = enabled && canTranslate,
                     isBusy = isBusy,
+                    uiLanguage = uiLanguage,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                     onClick = onSpeakSpanish,
                 )
                 TextButton(
                     onClick = {
-                        if (!isBusy) {
+                        if (!isBusy && canTranslate) {
                             typedText = ""
                             showSpanishDialog = true
                         }
                     },
-                    enabled = enabled && !isBusy,
+                    enabled = enabled && !isBusy && canTranslate,
                 ) {
                     Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Escribir", style = MaterialTheme.typography.labelSmall)
+                    Text(localized(uiLanguage, R.string.write), style = MaterialTheme.typography.labelSmall)
+                }
+                if (!canTranslate) {
+                    Text(
+                        localized(uiLanguage, R.string.choose_different_languages),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
 
@@ -1374,6 +1554,7 @@ private fun ConversationMicRow(
                     color = MaterialTheme.colorScheme.tertiary,
                     enabled = enabled,
                     isBusy = isBusy,
+                    uiLanguage = uiLanguage,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                     onClick = onListenJapanese,
                 )
@@ -1388,17 +1569,18 @@ private fun ConversationMicRow(
                 ) {
                     Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Escribir", style = MaterialTheme.typography.labelSmall)
+                    Text(localized(uiLanguage, R.string.write), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
 
         if (showSpanishDialog) {
             TypingDialog(
-                title = "Escribir en español",
-                hint = "El reconocimiento de voz a veces falla. Escribe la frase que quieres traducir.",
-                label = "Frase en español",
-                hintLocale = SPANISH_IME_HINT,
+                title = localized(uiLanguage, R.string.write_in, sourceLangName),
+                hint = localized(uiLanguage, R.string.type_it_hint),
+                label = localized(uiLanguage, R.string.frase_en, sourceLangName),
+                hintLocale = LocaleList(Locale(sourceLanguage.id)),
+                uiLanguage = uiLanguage,
                 typedText = typedText,
                 onTypedTextChange = { typedText = it },
                 onDismiss = { showSpanishDialog = false },
@@ -1413,8 +1595,9 @@ private fun ConversationMicRow(
             TypingDialog(
                 title = foreignHeading,
                 hint = foreignHint,
-                label = "Frase en $foreignLangName",
+                label = localized(uiLanguage, R.string.frase_en, foreignLangName),
                 hintLocale = imeHintLocaleFor(targetLanguage),
+                uiLanguage = uiLanguage,
                 typedText = typedText,
                 onTypedTextChange = { typedText = it },
                 onDismiss = { showForeignDialog = false },
@@ -1436,6 +1619,7 @@ private fun ModeMicButton(
     color: Color,
     enabled: Boolean,
     isBusy: Boolean,
+    uiLanguage: UiLanguage,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -1456,7 +1640,11 @@ private fun ModeMicButton(
                 Crossfade(targetState = listening, label = "micToggle") { isListeningNow ->
                     Icon(
                         imageVector = if (isListeningNow) Icons.Default.Stop else icon(),
-                        contentDescription = if (isListeningNow) "Detener $label" else label,
+                        contentDescription = if (isListeningNow) {
+                            localized(uiLanguage, R.string.stop_x, label)
+                        } else {
+                            label
+                        },
                         modifier = Modifier.size(32.dp),
                         tint = Color.White,
                     )
@@ -1470,7 +1658,7 @@ private fun ModeMicButton(
             shape = RoundedCornerShape(12.dp),
         ) {
             Text(
-                text = if (listening) "Detener" else label,
+                text = if (listening) localized(uiLanguage, R.string.stop) else label,
                 style = MaterialTheme.typography.labelSmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1491,13 +1679,14 @@ private fun ModeMicButton(
 @Composable
 private fun HistoryFeed(
     history: List<TranslationHistoryItem>,
+    uiLanguage: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
     if (history.isEmpty()) return
 
     Column(modifier = modifier) {
         Text(
-            "Historial",
+            localized(uiLanguage, R.string.history_label),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 4.dp),
@@ -1563,6 +1752,7 @@ private fun SubtitlesOverlay(
     pendingResult: String?,
     pendingRomaji: String?,
     isTranslating: Boolean,
+    uiLanguage: UiLanguage,
     onExit: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -1593,7 +1783,7 @@ private fun SubtitlesOverlay(
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "Salir de subtítulos",
+                contentDescription = localized(uiLanguage, R.string.exit_subtitles_cd),
                 tint = Color.White,
                 modifier = Modifier.padding(10.dp).size(20.dp),
             )
@@ -1685,6 +1875,7 @@ private fun SubtitleLine(text: String, romaji: String?, emphasized: Boolean) {
 @Composable
 private fun LiveConversationView(
     state: TranslatorUiState,
+    uiLanguage: UiLanguage,
     onLiveSpeakSpanish: () -> Unit,
     onLiveSuggestionTapped: (String) -> Unit,
     onToggleLiveListeningPause: () -> Unit,
@@ -1700,27 +1891,17 @@ private fun LiveConversationView(
     // disappear on their own — a manual escape hatch for bad suggestions.
     var suggestionsHidden by remember { mutableStateOf(false) }
 
-    val foreignLabel = when (state.targetLanguage) {
-        TargetLanguage.KOREAN -> "Coreano"
-        TargetLanguage.ENGLISH -> "Inglés"
-        TargetLanguage.CHINESE -> "Chino"
-        TargetLanguage.JAPANESE -> "Japonés"
-    }
-    val foreignHint = when (state.targetLanguage) {
-        TargetLanguage.KOREAN -> "Escribe la frase en coreano (한글) o en fonética."
-        TargetLanguage.ENGLISH -> "Escribe la frase en inglés."
-        TargetLanguage.CHINESE -> "Escribe la frase en chino (中文) o en pinyin."
-        TargetLanguage.JAPANESE -> "Escribe la frase, sea en japonés (かな/漢字) o en romaji."
-    }
+    val foreignLabel = state.targetLanguage.localizedName(uiLanguage)
+    val foreignHint = localized(uiLanguage, R.string.type_it_hint_foreign, foreignLabel)
 
     Column(modifier = modifier) {
 
         // Turn indicator
         val turnText = when {
-            state.isLiveListeningPaused -> "Escucha de $foreignLabel en pausa"
-            state.liveTurn == LiveTurn.YOU -> "Estás hablando…"
-            state.liveTurn == LiveTurn.THEM -> "Escuchando $foreignLabel…"
-            else -> "Conversación en vivo"
+            state.isLiveListeningPaused -> localized(uiLanguage, R.string.live_turn_paused, foreignLabel)
+            state.liveTurn == LiveTurn.YOU -> localized(uiLanguage, R.string.live_turn_speaking)
+            state.liveTurn == LiveTurn.THEM -> localized(uiLanguage, R.string.live_turn_listening, foreignLabel)
+            else -> localized(uiLanguage, R.string.live_conversation_default)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1759,7 +1940,11 @@ private fun LiveConversationView(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Text(
-                    if (state.isLiveListeningPaused) "Reanudar" else "Pausar",
+                    if (state.isLiveListeningPaused) {
+                        localized(uiLanguage, R.string.resume)
+                    } else {
+                        localized(uiLanguage, R.string.pause)
+                    },
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
@@ -1787,7 +1972,7 @@ private fun LiveConversationView(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "Pulsa el botón de abajo para hablar,\no toca una sugerencia para responder.",
+                    localized(uiLanguage, R.string.live_empty_hint),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -1823,7 +2008,7 @@ private fun LiveConversationView(
                 contentPadding = PaddingValues(bottom = 4.dp),
             ) {
                 items(messages, key = { it.id }) { entry ->
-                    LiveChatBubble(entry, showKana = state.isShowKana)
+                    LiveChatBubble(entry, showKana = state.isShowKana, uiLanguage = uiLanguage)
                 }
             }
         }
@@ -1854,13 +2039,13 @@ private fun LiveConversationView(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Sugerencias de respuesta",
+                    localized(uiLanguage, R.string.suggestions_reply),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TextButton(onClick = { suggestionsHidden = !suggestionsHidden }) {
                     Text(
-                        if (suggestionsHidden) "Mostrar" else "Ocultar",
+                        if (suggestionsHidden) localized(uiLanguage, R.string.show) else localized(uiLanguage, R.string.hide),
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
@@ -1882,6 +2067,7 @@ private fun LiveConversationView(
         LiveMicBar(
             isListening = state.isListening && state.liveTurn == LiveTurn.YOU,
             busy = state.isTranslating || state.isSpeaking,
+            uiLanguage = uiLanguage,
             onSpeakSpanish = onLiveSpeakSpanish,
         )
         Row(
@@ -1891,22 +2077,23 @@ private fun LiveConversationView(
             TextButton(onClick = { typedText = ""; showSpanishDialog = true }) {
                 Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Escribir en español", style = MaterialTheme.typography.labelSmall)
+                Text(localized(uiLanguage, R.string.write_in_spanish), style = MaterialTheme.typography.labelSmall)
             }
             TextButton(onClick = { typedText = ""; showForeignDialog = true }) {
                 Icon(Icons.Default.Create, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Escribir en $foreignLabel", style = MaterialTheme.typography.labelSmall)
+                Text(localized(uiLanguage, R.string.write_in_language, foreignLabel), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
 
     if (showSpanishDialog) {
         TypingDialog(
-            title = "Escribir en español",
-            hint = "Útil cuando la otra persona prefiere escribir en tu celular en vez de hablar.",
-            label = "Frase en español",
+            title = localized(uiLanguage, R.string.write_in_spanish),
+            hint = localized(uiLanguage, R.string.write_in_spanish_helper),
+            label = localized(uiLanguage, R.string.frase_en, Language.SPANISH.localizedName(uiLanguage)),
             hintLocale = SPANISH_IME_HINT,
+            uiLanguage = uiLanguage,
             typedText = typedText,
             onTypedTextChange = { typedText = it },
             onDismiss = { showSpanishDialog = false },
@@ -1919,10 +2106,11 @@ private fun LiveConversationView(
 
     if (showForeignDialog) {
         TypingDialog(
-            title = "Escribir en $foreignLabel",
+            title = localized(uiLanguage, R.string.write_in_language, foreignLabel),
             hint = foreignHint,
-            label = "Frase en $foreignLabel",
+            label = localized(uiLanguage, R.string.frase_en, foreignLabel),
             hintLocale = imeHintLocaleFor(state.targetLanguage),
+            uiLanguage = uiLanguage,
             typedText = typedText,
             onTypedTextChange = { typedText = it },
             onDismiss = { showForeignDialog = false },
@@ -1936,7 +2124,7 @@ private fun LiveConversationView(
 
 /** A single chat bubble: TÚ right-aligned (primary), ELLOS left-aligned. */
 @Composable
-private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean) {
+private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean, uiLanguage: UiLanguage) {
     val isYou = entry.turn == LiveTurn.YOU
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1958,7 +2146,7 @@ private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean) {
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Text(
-                    (if (isYou) "TÚ" else "ELLOS"),
+                    (if (isYou) localized(uiLanguage, R.string.you_label) else localized(uiLanguage, R.string.they_label)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2086,6 +2274,7 @@ private fun LiveSuggestionCards(
 private fun LiveMicBar(
     isListening: Boolean,
     busy: Boolean,
+    uiLanguage: UiLanguage,
     onSpeakSpanish: () -> Unit,
 ) {
     Row(
@@ -2094,12 +2283,13 @@ private fun LiveMicBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ModeMicButton(
-            label = "Hablar en Español",
+            label = localized(uiLanguage, R.string.speak_in, Language.SPANISH.localizedName(uiLanguage)),
             listening = isListening,
             icon = { Icons.Default.RecordVoiceOver },
             color = MaterialTheme.colorScheme.primary,
             enabled = true,
             isBusy = busy,
+            uiLanguage = uiLanguage,
             onClick = onSpeakSpanish,
         )
     }

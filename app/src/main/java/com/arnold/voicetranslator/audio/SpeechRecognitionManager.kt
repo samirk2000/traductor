@@ -146,10 +146,24 @@ class SpeechRecognitionManager(private val context: Context) {
         destroyRecognizer()
         requestAudioFocus()
 
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context).also { sr ->
-            sr.setRecognitionListener(createListener())
-            sr.startListening(recognitionIntent())
-        }
+        val sr = SpeechRecognizer.createSpeechRecognizer(context)
+        sr.setRecognitionListener(createListener())
+        recognizer = sr
+        // Warm-up delay: on several real devices (confirmed on OnePlus), the
+        // mic/recognition engine isn't fully "hot" the instant
+        // startListening() is invoked right after createSpeechRecognizer(),
+        // which clips the very first word if the user starts talking
+        // immediately (e.g. a fast "はいお願いします" with no leading
+        // pause). A short delay lets the engine warm up before we actually
+        // start capturing, fixing the "primera palabra cortada" bug.
+        handler.postDelayed({
+            // Guard against a stale callback firing after start()/cancel()
+            // replaced or tore down this recognizer in the meantime.
+            if (recognizer === sr) {
+                Log.d("STT", "warmup")
+                sr.startListening(recognitionIntent())
+            }
+        }, WARMUP_DELAY_MILLIS)
         onReady()
     }
 
@@ -333,13 +347,38 @@ class SpeechRecognitionManager(private val context: Context) {
             // us (error code 11) when the requested language is not installed.
             putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, true)
             // Surface live partials and keep listening through natural pauses.
+            // Set via both the typed constant and the raw extra key: some
+            // OEM recognizer services (observed on OnePlus/ColorOS) only
+            // honor the literal string key even though it's the exact same
+            // value as RecognizerIntent.EXTRA_PARTIAL_RESULTS.
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra("android.speech.extra.PARTIAL_RESULTS", true)
+            // Give the recognizer more room before it decides speech is
+            // "possibly" or "definitely" finished, so a slightly slow start
+            // (see warm-up delay above) or a fast multi-word phrase doesn't
+            // get its first/last word chopped off.
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                POSSIBLY_COMPLETE_SILENCE_MILLIS,
+            )
             putExtra(
                 RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-                2500L,
+                COMPLETE_SILENCE_MILLIS,
             )
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            if (preferOfflineRecognition) {
+            // First-word accuracy fix: the on-device offline model tends to
+            // clip/mishear the very first word of a fast utterance (e.g. a
+            // quick Japanese "はいお願いします" with no pause) more than the
+            // online model does. Only force online recognition when there's
+            // actually a network to use it — with no network (airplane
+            // mode) we must still honor preferOfflineRecognition, or the
+            // "modo sin conexión" + offline-voice-pack fallback above would
+            // break again.
+            val forceOnlineForAccuracy = isNetworkAvailable() && (
+                speechLanguage.equals(JAPANESE_SPEECH_LANGUAGE, ignoreCase = true) ||
+                    speechLanguage.equals(KOREAN_SPEECH_LANGUAGE, ignoreCase = true)
+                )
+            if (preferOfflineRecognition && !forceOnlineForAccuracy) {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             }
         }
@@ -351,6 +390,12 @@ class SpeechRecognitionManager(private val context: Context) {
         const val KOREAN_SPEECH_LANGUAGE = "ko-KR"
         const val ENGLISH_SPEECH_LANGUAGE = "en-US"
         const val RETRY_DELAY_MILLIS = 600L
+        /** Delay before startListening() to let the mic/engine warm up (see [start]). */
+        const val WARMUP_DELAY_MILLIS = 300L
+        /** EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS value. */
+        const val POSSIBLY_COMPLETE_SILENCE_MILLIS = 1500L
+        /** EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS value. */
+        const val COMPLETE_SILENCE_MILLIS = 2000L
         // SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE — added in API 31, kept
         // as a literal so this branch also compiles/works correctly if the
         // constant isn't resolvable on some toolchains, and to document

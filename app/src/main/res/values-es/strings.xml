@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Spanish strings. Used whenever the app's UI language is Spanish — the
+  default/fallback UiLanguage whenever "Origen" is anything other than
+  English (see ui/localization/Localization.kt).
+-->
+<resources>
+    <string name="app_name" translatable="false">Traductor de Voz</string>
+
+    <!-- Top-level tabs -->
+    <string name="tab_translator">Traductor</string>
+    <string name="tab_phrasebook">Fraseario</string>
+    <string name="tab_simulation">Simulación</string>
+
+    <!-- Translator header bar -->
+    <string name="subtitles">Subtítulos</string>
+    <string name="live_mode">En vivo</string>
+    <string name="live_mode_active">• En vivo</string>
+    <string name="delete_history_cd">Borrar historial</string>
+    <string name="settings_cd">Ajustes</string>
+    <string name="menu_source_destination">Origen y destino</string>
+    <string name="source">Origen</string>
+    <string name="destination">Destino</string>
+    <string name="choose_different_languages">Elige idiomas diferentes</string>
+    <string name="speak_on_translate">Hablar al traducir</string>
+    <string name="show_japanese_kana">Mostrar japonés (kana)</string>
+    <string name="show_korean_hangul">Mostrar coreano (hangul)</string>
+    <string name="offline_mode">Modo sin conexión</string>
+    <string name="downloading_model">Descargando modelo…</string>
+    <string name="download_model_online">Descargar modelo en línea</string>
+    <string name="model_downloaded">Modelo descargado</string>
+    <string name="offline_models_header">Modelos Offline</string>
+    <string name="downloaded">Descargado</string>
+    <string name="downloading_percent">Descargando… %1$d%%</string>
+    <string name="not_downloaded">No descargado</string>
+    <string name="download_model_for_cd">Descargar modelo de %1$s</string>
+    <string name="open_settings">Abrir Ajustes</string>
+    <string name="close">Cerrar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="download">Descargar</string>
+    <string name="missing_offline_model_title">Falta el modelo offline</string>
+    <string name="missing_offline_model_body">Falta el modelo offline de %1$s (~%2$d MB). ¿Descargarlo ahora para poder traducir sin conexión?</string>
+
+    <!-- Translation display -->
+    <string name="translating">Traduciendo...</string>
+    <string name="press_mic_hint">Pulsa el micrófono y habla en %1$s.</string>
+    <string name="listened_label">Escuchaste:</string>
+    <string name="alternatives">Alternativas</string>
+    <string name="play">Reproducir</string>
+    <string name="reply_in_language">Responder en %1$s</string>
+    <string name="choose_how_to_reply">Elige cómo responder</string>
+    <string name="listening_hint">Escuchando: %1$s...</string>
+
+    <!-- Mic row / typing dialogs -->
+    <string name="speak_in">Hablar en %1$s</string>
+    <string name="listen_in">Escuchar %1$s</string>
+    <string name="write">Escribir</string>
+    <string name="write_in">Escribir en %1$s</string>
+    <string name="write_in_spanish">Escribir en español</string>
+    <string name="frase_en">Frase en %1$s</string>
+    <string name="type_it_hint">El reconocimiento de voz a veces falla. Escribe la frase que quieres traducir.</string>
+    <string name="type_it_hint_foreign">El reconocimiento de voz a veces falla. Escribe la frase en %1$s.</string>
+    <string name="translate_action">Traducir</string>
+    <string name="voice_offline_guidance_close">Cerrar</string>
+    <string name="stop">Detener</string>
+    <string name="stop_x">Detener %1$s</string>
+    <string name="mic_permission_required">Se requiere permiso del micrófono.</string>
+    <string name="no_text_captured">No se capturó ningún texto.</string>
+    <string name="nothing_to_translate">Escribe algo para traducir.</string>
+    <string name="model_already_downloaded">El modelo ya está descargado.</string>
+    <string name="could_not_download_model">No se pudo descargar el modelo.</string>
+    <string name="could_not_download_model_for">No se pudo descargar el modelo de %1$s.</string>
+    <string name="unexpected_error">Ocurrió un error inesperado.</string>
+    <string name="offline_translation_error">Error de traducción offline.</string>
+    <string name="translation_error">Error al traducir.</string>
+    <string name="voice_offline_guidance">Este idioma no tiene reconocimiento de voz sin conexión en tu teléfono. Ve a Ajustes &gt; Voz offline y descarga el paquete si aparece disponible; si no aparece, tu equipo no lo soporta offline — usa el modo de texto o desactiva el modo avión para reconocer por voz.</string>
+
+    <!-- Live conversation -->
+    <string name="live_turn_paused">Escucha de %1$s en pausa</string>
+    <string name="live_turn_speaking">Estás hablando…</string>
+    <string name="live_turn_listening">Escuchando %1$s…</string>
+    <string name="live_conversation_default">Conversación en vivo</string>
+    <string name="pause">Pausar</string>
+    <string name="resume">Reanudar</string>
+    <string name="live_empty_hint">Pulsa el botón de abajo para hablar,\no toca una sugerencia para responder.</string>
+    <string name="suggestions_reply">Sugerencias de respuesta</string>
+    <string name="show">Mostrar</string>
+    <string name="hide">Ocultar</string>
+    <string name="write_in_language">Escribir en %1$s</string>
+    <string name="write_in_spanish_helper">Útil cuando la otra persona prefiere escribir en tu celular en vez de hablar.</string>
+    <string name="you_label">TÚ</string>
+    <string name="they_label">ELLOS</string>
+
+    <!-- History -->
+    <string name="history_label">Historial</string>
+    <string name="exit_subtitles_cd">Salir de subtítulos</string>
+
+    <!-- Pipeline status -->
+    <string name="status_idle">Listo</string>
+    <string name="status_listening">Escuchando...</string>
+    <string name="status_translating">Traduciendo...</string>
+    <string name="status_speaking">Reproduciendo</string>
+
+    <!-- Language display names -->
+    <string name="lang_spanish">Español</string>
+    <string name="lang_english">Inglés</string>
+    <string name="lang_japanese">Japonés</string>
+    <string name="lang_korean">Coreano</string>
+    <string name="lang_chinese">Chino</string>
+
+    <!-- Phrasebook -->
+    <string name="phrasebook_title">Fraseario</string>
+    <string name="phrasebook_subtitle">Frases esenciales en %1$s</string>
+    <string name="search_in_spanish">Buscar en español…</string>
+    <string name="search_in_english">Buscar en inglés…</string>
+    <string name="clear_search_cd">Limpiar búsqueda</string>
+    <string name="category_all">Todas</string>
+    <string name="category_courtesy">Cortesía</string>
+    <string name="category_prices">Precios</string>
+    <string name="category_shopping">Compras</string>
+    <string name="category_restaurant">Restaurante</string>
+    <string name="category_transport">Transporte</string>
+    <string name="category_hotel">Hotel</string>
+    <string name="category_directions">Direcciones</string>
+    <string name="category_basic">Básico</string>
+    <string name="category_casual_conversation">Conversación</string>
+    <string name="category_emergency">Emergencia</string>
+    <string name="favorites_chip">★ Favoritos</string>
+    <string name="no_phrases_found">No se encontraron frases.</string>
+    <string name="remove_favorite_cd">Quitar de favoritos</string>
+    <string name="add_favorite_cd">Agregar a favoritos</string>
+    <string name="listen_cd">Escuchar</string>
+</resources>

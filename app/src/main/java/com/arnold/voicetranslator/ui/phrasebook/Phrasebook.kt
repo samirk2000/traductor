@@ -2,6 +2,7 @@ package com.arnold.voicetranslator.ui.phrasebook
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,7 +52,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arnold.voicetranslator.R
+import com.arnold.voicetranslator.data.model.Language
 import com.arnold.voicetranslator.data.model.TargetLanguage
+import com.arnold.voicetranslator.ui.localization.UiLanguage
+import com.arnold.voicetranslator.ui.localization.localized
+import com.arnold.voicetranslator.ui.localization.localizedName
+import com.arnold.voicetranslator.ui.localization.toUiLanguage
 import org.json.JSONArray
 import java.util.Locale
 
@@ -115,6 +124,19 @@ private fun phoneticFor(phrase: Phrase, target: TargetLanguage): String = when (
     TargetLanguage.ENGLISH -> ""
 }
 
+/**
+ * "Meaning" line shown at the top of each card (used to always be hardcoded
+ * Spanish). Now follows the Traductor's Origen selector: if Origen is
+ * Inglés, show the phrase's English meaning instead — every phrase in
+ * phrasebook.json already carries an `en` entry. Any other Origen (ja/ko/zh,
+ * uncommon as an "idioma de significado") still falls back to Spanish, since
+ * those don't have a plain-meaning field of their own.
+ */
+private fun meaningFor(phrase: Phrase, origin: Language): String = when (origin) {
+    Language.ENGLISH -> phrase.en?.text?.takeIf { it.isNotBlank() } ?: phrase.es
+    else -> phrase.es
+}
+
 /** TTS locale for the currently active [TargetLanguage]. */
 private fun ttsLocaleFor(target: TargetLanguage): Locale = when (target) {
     TargetLanguage.JAPANESE -> Locale.JAPAN
@@ -123,18 +145,41 @@ private fun ttsLocaleFor(target: TargetLanguage): Locale = when (target) {
     TargetLanguage.ENGLISH -> Locale.ENGLISH
 }
 
-/** Ordered list of categories as they should appear in the filter chips. */
+/**
+ * Normalizes a category string so it can be compared reliably regardless
+ * of accents/case coming from phrasebook.json (e.g. "CORTESIA" vs
+ * "cortesía" vs "Cortesia" all resolve to the same key: "cortesia"). This
+ * is what fixes the "Básico" chip showing empty when the JSON category
+ * didn't exactly byte-match the hardcoded chip value.
+ */
+private fun normalizeCategoryKey(value: String): String = value
+    .trim()
+    .lowercase(Locale.ROOT)
+    .replace("á", "a")
+    .replace("é", "e")
+    .replace("í", "i")
+    .replace("ó", "o")
+    .replace("ú", "u")
+    .replace("ñ", "n")
+
+/** Ordered list of categories (normalized keys) as they should appear in the filter chips. */
 val PHRASEBOOK_CATEGORIES = listOf(
-    "basico", "aeropuerto", "hotel", "restaurante", "emergencia", "compras",
+    "cortesia", "precios", "compras", "restaurante", "transporte", "hotel",
+    "direcciones", "basico", "conversacion_casual", "emergencia",
 )
 
-fun phrasebookCategoryLabel(category: String): String = when (category) {
-    "basico" -> "Básico"
-    "aeropuerto" -> "Aeropuerto"
-    "hotel" -> "Hotel"
-    "restaurante" -> "Restaurante"
-    "emergencia" -> "Emergencia"
-    "compras" -> "Compras"
+@Composable
+fun phrasebookCategoryLabel(category: String, uiLanguage: UiLanguage): String = when (normalizeCategoryKey(category)) {
+    "cortesia" -> localized(uiLanguage, R.string.category_courtesy)
+    "precios" -> localized(uiLanguage, R.string.category_prices)
+    "compras" -> localized(uiLanguage, R.string.category_shopping)
+    "restaurante" -> localized(uiLanguage, R.string.category_restaurant)
+    "transporte" -> localized(uiLanguage, R.string.category_transport)
+    "hotel" -> localized(uiLanguage, R.string.category_hotel)
+    "direcciones" -> localized(uiLanguage, R.string.category_directions)
+    "basico" -> localized(uiLanguage, R.string.category_basic)
+    "conversacion_casual" -> localized(uiLanguage, R.string.category_casual_conversation)
+    "emergencia" -> localized(uiLanguage, R.string.category_emergency)
     else -> category.replaceFirstChar { it.uppercase() }
 }
 
@@ -247,12 +292,26 @@ fun PhrasebookScreen(
     // Mirrors the main Traductor's "idioma de salida" so the Fraseario shows
     // the same single active language instead of always mixing JA + KO.
     targetLanguage: TargetLanguage = TargetLanguage.JAPANESE,
+    // Mirrors the Traductor's Origen selector: drives the "meaning" line
+    // (top of each card), which used to always be hardcoded Spanish.
+    originLanguage: Language = Language.SPANISH,
+    // App-wide UI language (see MainActivity/TranslatorUiState.uiLanguage):
+    // drives EVERY piece of chrome on this screen (title, search hint,
+    // category chips, empty state, content descriptions), not just the
+    // "meaning" line above (which is already driven by originLanguage).
+    uiLanguage: UiLanguage = originLanguage.toUiLanguage(),
 ) {
     val context = LocalContext.current
 
     val phrases = remember { loadPhrasebook(context) }
+    LaunchedEffect(phrases) {
+        Log.d("PHRASEBOOK", "categorias en json: ${phrases.map { it.category }.distinct()}")
+    }
     var favorites by remember { mutableStateOf(readFavorites(context)) }
     var query by rememberSaveable { mutableStateOf("") }
+    // selectedCategory always stores a normalized key (see normalizeCategoryKey)
+    // so it can be compared 1:1 against PHRASEBOOK_CATEGORIES entries and against
+    // normalizeCategoryKey(phrase.category) below — no more accent/case mismatches.
     var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var showOnlyFavorites by rememberSaveable { mutableStateOf(false) }
 
@@ -268,15 +327,23 @@ fun PhrasebookScreen(
         writeFavorites(context, updated)
     }
 
-    val filtered = remember(phrases, query, selectedCategory, showOnlyFavorites, favorites) {
-        val normalizedQuery = query.trim().lowercase()
-        phrases.filter { phrase ->
-            val matchesQuery = normalizedQuery.isBlank() ||
-                phrase.es.lowercase().contains(normalizedQuery)
-            val matchesCategory = selectedCategory == null || phrase.category == selectedCategory
-            val matchesFavorite = !showOnlyFavorites || favorites.contains(phrase.id)
-            matchesQuery && matchesCategory && matchesFavorite
-        }
+    // Filtered step by step (category -> search -> favorites) instead of one
+    // big accumulative AND, so toggling one filter can never leave a stale
+    // condition "pegada" from a previous filter combination.
+    val filtered = remember(phrases, query, selectedCategory, showOnlyFavorites, favorites, originLanguage) {
+        val normalizedQuery = query.trim().lowercase(Locale.ROOT)
+        phrases
+            .filter { phrase ->
+                selectedCategory == null || normalizeCategoryKey(phrase.category) == selectedCategory
+            }
+            .filter { phrase ->
+                normalizedQuery.isBlank() ||
+                    meaningFor(phrase, originLanguage).lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                    phrase.es.lowercase(Locale.ROOT).contains(normalizedQuery)
+            }
+            .filter { phrase ->
+                !showOnlyFavorites || favorites.contains(phrase.id)
+            }
     }
 
     Column(
@@ -285,14 +352,14 @@ fun PhrasebookScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
-            "Fraseario",
+            localized(uiLanguage, R.string.phrasebook_title),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.size(4.dp))
         Text(
-            "Frases esenciales en ${targetLanguage.displayName}",
+            localized(uiLanguage, R.string.phrasebook_subtitle, targetLanguage.localizedName(uiLanguage)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -302,14 +369,22 @@ fun PhrasebookScreen(
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Buscar en español…") },
+            placeholder = {
+                Text(
+                    if (originLanguage == Language.ENGLISH) {
+                        localized(uiLanguage, R.string.search_in_english)
+                    } else {
+                        localized(uiLanguage, R.string.search_in_spanish)
+                    },
+                )
+            },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = null)
             },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { query = "" }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Limpiar búsqueda")
+                        Icon(Icons.Default.Clear, contentDescription = localized(uiLanguage, R.string.clear_search_cd))
                     }
                 }
             },
@@ -326,19 +401,30 @@ fun PhrasebookScreen(
         ) {
             item {
                 FilterChip(
-                    selected = selectedCategory == null,
-                    onClick = { selectedCategory = null },
-                    label = { Text("Todas") },
+                    // "Todas" only reads as selected when there's truly no
+                    // other filter active — otherwise it looked selected
+                    // while favorites was still silently on.
+                    selected = selectedCategory == null && !showOnlyFavorites,
+                    onClick = {
+                        selectedCategory = null
+                        // Clicking "Todas"/any category always clears the
+                        // favorites-only toggle — this is the fix for the
+                        // "vuelvo a Todas y sigue vacío" bug: showOnlyFavorites
+                        // no longer stays pegado from a previous selection.
+                        showOnlyFavorites = false
+                    },
+                    label = { Text(localized(uiLanguage, R.string.category_all)) },
                     shape = RoundedCornerShape(20.dp),
                 )
             }
             items(PHRASEBOOK_CATEGORIES) { category ->
                 FilterChip(
-                    selected = selectedCategory == category,
+                    selected = selectedCategory == category && !showOnlyFavorites,
                     onClick = {
+                        showOnlyFavorites = false
                         selectedCategory = if (selectedCategory == category) null else category
                     },
-                    label = { Text(phrasebookCategoryLabel(category)) },
+                    label = { Text(phrasebookCategoryLabel(category, uiLanguage)) },
                     shape = RoundedCornerShape(20.dp),
                 )
             }
@@ -346,7 +432,7 @@ fun PhrasebookScreen(
                 FilterChip(
                     selected = showOnlyFavorites,
                     onClick = { showOnlyFavorites = !showOnlyFavorites },
-                    label = { Text("★ Favoritos") },
+                    label = { Text(localized(uiLanguage, R.string.favorites_chip)) },
                     shape = RoundedCornerShape(20.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -357,33 +443,40 @@ fun PhrasebookScreen(
 
         Spacer(Modifier.size(12.dp))
 
-        if (filtered.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No se encontraron frases.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
-            ) {
-                items(filtered, key = { it.id }) { phrase ->
-                    val native = nativeScriptFor(phrase, targetLanguage)
-                    val phonetic = phoneticFor(phrase, targetLanguage)
-                    val locale = ttsLocaleFor(targetLanguage)
-                    PhraseCard(
-                        es = phrase.es,
-                        native = native,
-                        phonetic = phonetic,
-                        target = targetLanguage,
-                        isFavorite = favorites.contains(phrase.id),
-                        onToggleFavorite = { toggleFavorite(phrase.id) },
-                        onSpeak = { tts.speak(native, locale) },
+        // Keying on the three filter inputs guarantees this block always
+        // recomposes fresh when the user switches chips or types a search,
+        // instead of ever reusing a stale filtered list/empty-state.
+        key(selectedCategory, showOnlyFavorites, query) {
+            if (filtered.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        localized(uiLanguage, R.string.no_phrases_found),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                ) {
+                    items(filtered, key = { it.id }) { phrase ->
+                        val native = nativeScriptFor(phrase, targetLanguage)
+                        val phonetic = phoneticFor(phrase, targetLanguage)
+                        val locale = ttsLocaleFor(targetLanguage)
+                        val meaning = meaningFor(phrase, originLanguage)
+                        PhraseCard(
+                            es = meaning,
+                            native = native,
+                            phonetic = phonetic,
+                            target = targetLanguage,
+                            uiLanguage = uiLanguage,
+                            isFavorite = favorites.contains(phrase.id),
+                            onToggleFavorite = { toggleFavorite(phrase.id) },
+                            onSpeak = { tts.speak(native, locale) },
+                        )
+                    }
                 }
             }
         }
@@ -409,10 +502,18 @@ private fun PhraseCard(
     native: String,
     phonetic: String,
     target: TargetLanguage,
+    uiLanguage: UiLanguage,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onSpeak: () -> Unit,
 ) {
+    // Chino usa tamaños ligeramente distintos (línea es 12sp, hanzi 18sp
+    // bold) según lo pedido para el Fraseario zh; el resto de idiomas
+    // conserva el tamaño original (13sp / 26sp) para no regresar nada.
+    val isChinese = target == TargetLanguage.CHINESE
+    val esFontSize = if (isChinese) 12.sp else 13.sp
+    val nativeFontSize = if (isChinese) 18.sp else 26.sp
+
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
@@ -424,23 +525,34 @@ private fun PhraseCard(
             modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Spanish — small, gray, top.
+            // Meaning (Spanish or English, per Origen) — small, gray, top.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    text = es,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
+                // Guards the rare Origen==Destino==Inglés case, where the
+                // meaning line and the native line below would otherwise
+                // show the exact same English text twice.
+                if (es.isNotBlank() && !es.equals(native, ignoreCase = true)) {
+                    Text(
+                        text = es,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = esFontSize,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
                 IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
+                        contentDescription = if (isFavorite) {
+                            localized(uiLanguage, R.string.remove_favorite_cd)
+                        } else {
+                            localized(uiLanguage, R.string.add_favorite_cd)
+                        },
                         tint = if (isFavorite) {
                             MaterialTheme.colorScheme.error
                         } else {
@@ -453,11 +565,13 @@ private fun PhraseCard(
 
             Spacer(Modifier.size(10.dp))
 
-            // Native script — big, bold, centered, middle.
+            // Native script — big, bold, centered, middle. For CHINESE this
+            // is the hanzi at 18sp (per Fraseario zh spec) instead of the
+            // 26sp used by the other target languages.
             Text(
                 text = native,
                 style = MaterialTheme.typography.headlineSmall,
-                fontSize = 26.sp,
+                fontSize = nativeFontSize,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
@@ -488,7 +602,7 @@ private fun PhraseCard(
             IconButton(onClick = onSpeak, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = "Escuchar",
+                    contentDescription = localized(uiLanguage, R.string.listen_cd),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp),
                 )

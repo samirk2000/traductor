@@ -4,9 +4,11 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import com.arnold.voicetranslator.R
 import androidx.lifecycle.viewModelScope
 import com.arnold.voicetranslator.audio.SpeechRecognitionManager
 import com.arnold.voicetranslator.audio.TtsManager
+import com.arnold.voicetranslator.data.model.Language
 import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.data.model.TranslationResult
 import com.arnold.voicetranslator.data.offline.MlKitOfflineException
@@ -14,6 +16,10 @@ import com.arnold.voicetranslator.data.offline.MlKitOfflineTranslator
 import com.arnold.voicetranslator.data.offline.ModelNotDownloadedException
 import com.arnold.voicetranslator.data.remote.WorkerApiClient
 import com.arnold.voicetranslator.data.remote.WorkerApiException
+import com.arnold.voicetranslator.ui.localization.UiLanguage
+import com.arnold.voicetranslator.ui.localization.localizedNamePlain
+import com.arnold.voicetranslator.ui.localization.localizedString
+import com.arnold.voicetranslator.ui.localization.toUiLanguage
 import com.arnold.voicetranslator.ui.state.PipelineStatus
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
@@ -70,6 +76,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return TargetLanguage.entries.find { it.id == savedId } ?: TargetLanguage.JAPANESE
     }
 
+    /** Origen/Destino selector persistence (Traductor's 2-dropdown pair). */
+    private fun loadSavedSourceLanguage(): Language =
+        Language.fromId(languagePrefs.getString(KEY_ORIGEN_LANG, null)) ?: Language.DEFAULT_SOURCE
+
+    private fun loadSavedDestinationLanguage(): Language =
+        Language.fromId(languagePrefs.getString(KEY_DESTINO_LANG, null)) ?: Language.DEFAULT_DESTINATION
+
     private fun persistTargetLanguage(target: TargetLanguage) {
         languagePrefs.edit()
             .putString(KEY_SOURCE_LANG, DEFAULT_SOURCE_LANG)
@@ -77,11 +90,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .apply()
     }
 
-    private val _uiState = MutableStateFlow(TranslatorUiState(targetLanguage = loadSavedTargetLanguage()))
+    private fun persistLanguagePair(source: Language, destination: Language) {
+        languagePrefs.edit()
+            .putString(KEY_ORIGEN_LANG, source.id)
+            .putString(KEY_DESTINO_LANG, destination.id)
+            .apply()
+    }
+
+    private val _uiState = MutableStateFlow(
+        TranslatorUiState(
+            targetLanguage = loadSavedTargetLanguage(),
+            sourceLanguage = loadSavedSourceLanguage(),
+            destinationLanguage = loadSavedDestinationLanguage(),
+        ),
+    )
     val uiState: StateFlow<TranslatorUiState> = _uiState.asStateFlow()
 
     private var translateJob: Job? = null
     private var lastSpeechText: String? = null
+
+    /**
+     * App-wide UI language, derived from the current Origen selector (see
+     * [TranslatorUiState.uiLanguage] — the actual source of truth read by
+     * the Compose layer). Exposed here too so this ViewModel's own
+     * `errorMessage` strings (set outside any @Composable scope) can be
+     * localized the same way, via [localizedText].
+     */
+    private val uiLanguage: UiLanguage
+        get() = _uiState.value.sourceLanguage.toUiLanguage()
+
+    /** Resolves a string resource in the current [uiLanguage], for use in
+     *  `errorMessage`/similar plain-String ViewModel state (no Compose
+     *  scope available here — see [localizedString]). */
+    private fun localizedText(@androidx.annotation.StringRes id: Int, vararg args: Any): String =
+        localizedString(getApplication(), uiLanguage, id, *args)
 
     // Counts consecutive ERROR_LANGUAGE_UNAVAILABLE/ERROR_CLIENT/ERROR_LANGUAGE_NOT_SUPPORTED
     // failures in Live mode's continuous foreign-listening loop. When a
@@ -91,6 +133,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // capped so we don't spin forever draining battery, while still not
     // requiring the user to press "Reanudar" for the first several retries.
     private var offlineVoiceRetryCount = 0
+
+    // ---- Silent auto-retry (no speech detected in 3s) ----------------------
+    // If the recognizer is listening but hasn't reported so much as a partial
+    // result within AUTO_RETRY_SILENCE_MILLIS, silently restart it once
+    // instead of leaving the user to notice and tap the mic again — helps
+    // with the same "primera palabra cortada" flakiness where the engine
+    // occasionally fails to pick up anything for the first couple seconds.
+    private var autoRetryJob: Job? = null
+    private var didAutoRetry = false
+
+    private fun scheduleAutoRetry() {
+        autoRetryJob?.cancel()
+        didAutoRetry = false
+        autoRetryJob = viewModelScope.launch {
+            delay(AUTO_RETRY_SILENCE_MILLIS)
+            val current = _uiState.value
+            if (current.isListening && current.partialTranscript.isBlank() && !didAutoRetry) {
+                didAutoRetry = true
+                Log.d(TAG, "auto-retry: sin audio detectado en ${AUTO_RETRY_SILENCE_MILLIS}ms, reiniciando escucha")
+                speechManager.start()
+            }
+        }
+    }
+
+    private fun cancelAutoRetry() {
+        autoRetryJob?.cancel()
+        autoRetryJob = null
+    }
 
     init {
         // Restore the persisted target language's TTS locale immediately so
@@ -134,6 +204,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun wireAudioCallbacks() {
         speechManager.onPartialResult = { partial ->
+            // Any live audio being heard cancels the "no detectó nada en 3s"
+            // auto-retry below — the mic is clearly picking something up.
+            cancelAutoRetry()
             _uiState.update {
                 it.copy(
                     errorMessage = null,
@@ -141,6 +214,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // the user can see the foreign speaker (or their own) words
                     // as they are being heard.
                     liveTranscript = if (it.isLiveConversation) partial else "",
+                    // Standard (non-live) mic flow: always kept up to date so
+                    // the "Escuchando: ..." hint can show it regardless of mode.
+                    partialTranscript = partial,
                 )
             }
         }
@@ -148,18 +224,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         speechManager.onResult = { text ->
             lastSpeechText = null
             offlineVoiceRetryCount = 0
+            cancelAutoRetry()
             Log.d(TAG, "speech onResult: \"$text\"")
             _uiState.update {
                 it.copy(
                     isListening = false,
                     liveTranscript = "",
+                    partialTranscript = "",
                 )
             }
             if (text.isBlank()) {
                 _uiState.update {
                     it.copy(
                         status = PipelineStatus.Idle,
-                        errorMessage = "No se capturó ningún texto.",
+                        errorMessage = localizedText(R.string.no_text_captured),
                     )
                 }
             } else {
@@ -185,12 +263,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         speechManager.onError = { message ->
+            cancelAutoRetry()
             _uiState.update {
                 it.copy(
                     status = PipelineStatus.Idle,
                     isListening = false,
                     errorMessage = message,
                     liveTranscript = "",
+                    partialTranscript = "",
                 )
             }
             // In live mode, transient silence (no speech / speech timeout) while
@@ -208,6 +288,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         speechManager.onEnd = {
+            cancelAutoRetry()
             _uiState.update { it.copy(isListening = false) }
         }
 
@@ -217,19 +298,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // (Ajustes > Voz offline) instead of a generic error, which the user
         // reasonably reads as an app bug.
         speechManager.onOfflineVoiceUnavailable = {
+            cancelAutoRetry()
             _uiState.update {
                 it.copy(
                     status = PipelineStatus.Idle,
                     isListening = false,
                     liveTranscript = "",
+                    partialTranscript = "",
                     // Some devices/idiomas simplemente no ofrecen paquete de
                     // voz offline para descargar (p. ej. solo Chino/Coreano
                     // en ciertos OnePlus) — en ese caso ningún ajuste lo
                     // arregla; hay que usar texto o desactivar modo avión.
-                    voiceOfflineGuidance = "Este idioma no tiene reconocimiento de voz sin conexión " +
-                        "en tu teléfono. Ve a Ajustes > Voz offline y descarga el paquete si aparece " +
-                        "disponible; si no aparece, tu equipo no lo soporta offline — usa el modo de " +
-                        "texto o desactiva el modo avión para reconocer por voz.",
+                    voiceOfflineGuidance = localizedText(R.string.voice_offline_guidance),
                 )
             }
             // Same as the "silence" case below: in Live mode, this shouldn't
@@ -315,6 +395,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         applyTargetLanguage(target)
     }
 
+    /**
+     * Selects the Origen language for the standard (non-live) Traductor flow
+     * — see [TranslatorUiState.sourceLanguage]. Independent from
+     * [TargetLanguage]/[onSelectLanguage], which still only drives the
+     * legacy offline-model / live-conversation / "Escuchar idioma" paths.
+     */
+    fun onSelectSourceLanguage(language: Language) {
+        val state = _uiState.value
+        if (language == state.sourceLanguage) return
+        _uiState.update { it.copy(sourceLanguage = language) }
+        persistLanguagePair(language, state.destinationLanguage)
+    }
+
+    /**
+     * Selects the Destino language for the standard (non-live) Traductor
+     * flow. Also keeps the legacy [TargetLanguage] (offline models, TTS
+     * default for "Escuchar idioma", live conversation) roughly in sync
+     * whenever the new [Language] maps 1:1 onto one of its 4 entries
+     * (ja/ko/zh/en) — Español has no [TargetLanguage] equivalent, so that
+     * mapping is simply skipped in that case and the legacy target stays
+     * whatever it was before.
+     */
+    fun onSelectDestinationLanguage(language: Language) {
+        val state = _uiState.value
+        if (language == state.destinationLanguage) return
+        _uiState.update { it.copy(destinationLanguage = language) }
+        persistLanguagePair(state.sourceLanguage, language)
+        TargetLanguage.entries.find { it.id == language.id }?.let { applyTargetLanguage(it) }
+    }
+
+    /** Swaps Origen <-> Destino (the swap button between the 2 dropdowns). */
+    fun onSwapLanguages() {
+        val state = _uiState.value
+        val newSource = state.destinationLanguage
+        val newDestination = state.sourceLanguage
+        _uiState.update { it.copy(sourceLanguage = newSource, destinationLanguage = newDestination) }
+        persistLanguagePair(newSource, newDestination)
+        TargetLanguage.entries.find { it.id == newDestination.id }?.let { applyTargetLanguage(it) }
+    }
+
     /** Toggles offline mode on/off and refreshes the download state. */
     fun onToggleOfflineMode(offline: Boolean) {
         stopEverything()
@@ -338,7 +458,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onMicToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.mic_permission_required)) }
             return
         }
         if (state.isListening) {
@@ -355,7 +475,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onSpeakSpanishToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.mic_permission_required)) }
+            return
+        }
+        // Fix (#6, Origen/Destino selector): Origen == Destino can't be
+        // translated — disabled here (not just visually) so a stray tap
+        // never fires a same-language "translation".
+        if (!state.canTranslate) {
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.choose_different_languages)) }
             return
         }
         if (state.isListening) {
@@ -372,7 +499,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun onTranslateSpanishText(input: String) {
         if (input.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Escribe algo para traducir.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.nothing_to_translate)) }
+            return
+        }
+        if (!_uiState.value.canTranslate) {
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.choose_different_languages)) }
             return
         }
         speechManager.cancel()
@@ -393,7 +524,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun onTranslateJapaneseText(input: String) {
         if (input.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Escribe algo para traducir.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.nothing_to_translate)) }
             return
         }
         speechManager.cancel()
@@ -421,7 +552,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onListenJapaneseToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.mic_permission_required)) }
             return
         }
         if (state.isListening) {
@@ -523,7 +654,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             progress = if (success) 1f else 0f,
                         )
                     ),
-                    errorMessage = if (success) state.errorMessage else "No se pudo descargar el modelo de ${target.displayName}.",
+                    errorMessage = if (success) {
+                        state.errorMessage
+                    } else {
+                        localizedText(
+                            R.string.could_not_download_model_for,
+                            target.localizedNamePlain(getApplication(), uiLanguage),
+                        )
+                    },
                     // Keep the legacy single-language indicator in sync too,
                     // since it's still used by the quick "Descargar modelo"
                     // menu item for the currently selected language.
@@ -590,7 +728,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onToggleLiveConversation() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.mic_permission_required)) }
             return
         }
         if (state.isLiveConversation) {
@@ -666,7 +804,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onLiveSpeakSpanish() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            _uiState.update { it.copy(errorMessage = "Se requiere permiso del micrófono.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.mic_permission_required)) }
             return
         }
         _uiState.update {
@@ -741,7 +879,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startSpeakingSpanish() {
-        speechManager.listenInSpanish()
+        // Fix (Origen/Destino selector): used to always force es-MX here.
+        // Now listens in whatever Origen language is selected (source.speechTag
+        // per Language.kt), so "Hablar en Español" really means "Hablar en
+        // <Origen>" once the user picks EN/JA/etc. as Origen.
+        speechManager.speechLanguage = _uiState.value.sourceLanguage.speechTag
         beginListening(isForeignSpeech = false)
     }
 
@@ -780,6 +922,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sourceText = null,
                 sourceRomaji = null,
                 liveTranscript = "",
+                partialTranscript = "",
             )
         }
         ttsManager.stop()
@@ -789,6 +932,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // still fail for a language whose pack IS installed (e.g. Coreano).
         speechManager.preferOfflineRecognition = _uiState.value.isOfflineMode
         speechManager.start()
+        scheduleAutoRetry()
     }
 
     /**
@@ -849,8 +993,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } else if (isForeignSpeech) {
                         conversationTranslate(text, targetLang)
                     } else {
-                        // Spanish heard: normal translate to target language.
-                        onlineTranslate(text, currentTarget)
+                        // Origen -> Destino (Origen/Destino selector): no
+                        // longer hardcodes Spanish as the source — uses
+                        // whatever Language pair the user picked (ES<->EN,
+                        // EN<->JA, JA<->ES, etc.), routed through the
+                        // Worker's /translate with a real `source`.
+                        onlineTranslateDynamic(
+                            text,
+                            _uiState.value.sourceLanguage,
+                            _uiState.value.destinationLanguage,
+                        )
                     }
                 }
                 Log.d(TAG, "translate result: main=\"${result.mainTranslation}\" alternatives=${result.alternatives} replySuggestions=${result.replySuggestions}")
@@ -872,7 +1024,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         status = PipelineStatus.Idle,
                         isTranslating = false,
-                        errorMessage = e.message ?: "Error de traducción offline.",
+                        errorMessage = e.message ?: localizedText(R.string.offline_translation_error),
                     )
                 }
             } catch (e: WorkerApiException) {
@@ -882,7 +1034,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         status = PipelineStatus.Idle,
                         isTranslating = false,
-                        errorMessage = e.message ?: "Error al traducir.",
+                        errorMessage = e.message ?: localizedText(R.string.translation_error),
                     )
                 }
             } catch (e: Exception) {
@@ -892,7 +1044,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         status = PipelineStatus.Idle,
                         isTranslating = false,
-                        errorMessage = "Ocurrió un error inesperado.",
+                        errorMessage = localizedText(R.string.unexpected_error),
                     )
                 }
             }
@@ -957,6 +1109,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     /**
+     * Origen -> Destino translation for the standard (non-live) flow, using
+     * the Origen/Destino [Language] pair instead of always assuming the
+     * source is Spanish. Mirrors [onlineTranslate]'s Japanese-romaji
+     * handling (Kuromoji, via [JapaneseRomajiConverter]) when the Destino is
+     * Japanese, whichever the Origen is (ES->JA, EN->JA, etc.).
+     *
+     * Korean's "fonético" DeepSeek path only applies to the original
+     * ES->KO direction (kept via [onlineTranslate]/[TargetLanguage] for the
+     * "Escuchar idioma"/live-conversation flows) — every other Destino,
+     * from any Origen, goes through the plain Google-backed /translate.
+     */
+    private suspend fun onlineTranslateDynamic(
+        text: String,
+        source: Language,
+        destination: Language,
+    ): TranslationResult {
+        val translated = workerApi.translate(text, target = destination.id, source = source.id)
+        val mainTranslation = if (destination == Language.JAPANESE) {
+            val romaji = JapaneseRomajiConverter.kanjiToRomaji(translated)
+            Log.d(
+                TAG,
+                "JA_ROMAJI_DEBUG onlineTranslateDynamic: input=\"$text\" source=${source.id} " +
+                    "googleRaw=\"$translated\" romaji=\"$romaji\"",
+            )
+            romaji
+        } else {
+            translated
+        }
+        return TranslationResult(
+            mainTranslation = mainTranslation.ifBlank { text },
+            nativeScript = if (destination == Language.JAPANESE) translated else null,
+        )
+    }
+
+    /**
      * Two-Way Conversation path used when the recognizer heard the foreign
      * speaker's language (Japanese, Korean, or English, per [foreignLang]):
      * the Worker's /converse (DeepSeek under the hood) returns a main
@@ -967,7 +1154,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         text: String,
         foreignLang: TargetLanguage,
     ): TranslationResult {
-        val result = workerApi.converse(text, foreignLang.id)
+        // Fix: meaning/translation used to always come back in Spanish
+        // regardless of the app's UI language (Origen selector) — now the
+        // Worker is told which language to produce it in, so "Listen
+        // Japanese"/Live mode show the meaning in English when Origen =
+        // Inglés instead of staying hardcoded to Spanish.
+        val result = workerApi.converse(text, foreignLang.id, meaningLang = uiLanguage.localeTag)
         if (foreignLang != TargetLanguage.JAPANESE) return result
         // Defensive guard: DeepSeek's /converse occasionally messes up a
         // suggestion's "romaji" field two different ways instead of an actual
@@ -1122,7 +1314,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // translation out for the user.
             Locale("es", "MX")
         } else {
-            localeFor(state.targetLanguage)
+            // Origen/Destino selector: speak in whatever Destino the user
+            // picked (target.ttsTag per Language.kt) instead of always the
+            // legacy 4-language TargetLanguage.
+            state.destinationLanguage.ttsLocale
         }
         ttsManager.setLocale(targetLocale)
         ttsManager.speak(text)
@@ -1164,7 +1359,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startDownload(target: TargetLanguage) = viewModelScope.launch {
         // Already downloaded for this language, do nothing.
         if (_uiState.value.isModelDownloaded) {
-            _uiState.update { it.copy(errorMessage = "El modelo ya está descargado.") }
+            _uiState.update { it.copy(errorMessage = localizedText(R.string.model_already_downloaded)) }
             return@launch
         }
 
@@ -1177,13 +1372,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isDownloadingModel = false,
                 isModelDownloaded = success,
                 downloadProgress = if (success) 1f else 0f,
-                errorMessage = if (success) null else "No se pudo descargar el modelo.",
+                errorMessage = if (success) null else localizedText(R.string.could_not_download_model),
             )
         }
     }
 
     private fun stopEverything() {
         translateJob?.cancel()
+        cancelAutoRetry()
         lastSpeechText = null
         speechManager.cancel()
         ttsManager.stop()
@@ -1200,6 +1396,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sourceText = null,
                 sourceRomaji = null,
                 liveTranscript = "",
+                partialTranscript = "",
             )
         }
     }
@@ -1223,6 +1420,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** Max consecutive auto-retries when the offline voice pack is missing. */
         const val MAX_OFFLINE_VOICE_RETRIES = 5
         const val SPEAK_FALLBACK_MILLIS = 15_000L
+        /** Silent auto-retry window: restart listening once if nothing at all
+         *  (not even a partial result) was heard within this many ms. */
+        const val AUTO_RETRY_SILENCE_MILLIS = 3_000L
         /** Characters that only appear in Spanish, never in Hepburn romaji. */
         val SPANISH_ONLY_MARKERS = Regex("[áéíóúñÁÉÍÓÚÑ¿¡]")
 
@@ -1230,7 +1430,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val LANGUAGE_PREFS_NAME = "translator_language_prefs"
         const val KEY_SOURCE_LANG = "source_lang"
         const val KEY_TARGET_LANG = "target_lang"
-        /** Source is currently always Spanish (the app's only input language). */
+        /** Legacy: source used to always be Spanish (the app's only input
+         *  language) before the Origen/Destino selector below existed. */
         const val DEFAULT_SOURCE_LANG = "es"
+        /** Origen/Destino selector persistence keys (see [Language]). */
+        const val KEY_ORIGEN_LANG = "origen_lang_id"
+        const val KEY_DESTINO_LANG = "destino_lang_id"
     }
 }

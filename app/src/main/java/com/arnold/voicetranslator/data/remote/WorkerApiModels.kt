@@ -3,11 +3,19 @@ package com.arnold.voicetranslator.data.remote
 import com.arnold.voicetranslator.data.model.ReplySuggestion
 import kotlinx.serialization.Serializable
 
-/** Body for POST /translate against the Cloudflare Worker proxy. */
+/**
+ * Body for POST /translate against the Cloudflare Worker proxy.
+ *
+ * @param source origin language id (see Language.id: "es"/"en"/"ja"/"ko"/"zh").
+ *   Defaults to "es" for backwards compatibility with the app's original
+ *   Spanish-only translate flow; pass a different value to translate FROM
+ *   English/Japanese/etc. (e.g. EN -> JA in the Traductor).
+ */
 @Serializable
 data class TranslateRequest(
     val text: String,
     val target: String,
+    val source: String = "es",
 )
 
 /**
@@ -34,11 +42,21 @@ data class KoreanPhoneticResponse(
     val alternatives: List<String> = emptyList(),
 )
 
-/** Body for POST /converse against the Cloudflare Worker proxy. */
+/**
+ * Body for POST /converse against the Cloudflare Worker proxy.
+ *
+ * @param meaningLang language the returned `mainTranslation`/reply
+ *   suggestions' "spanish" (meaning) field comes back in ("es"/"en").
+ *   Defaults to "es" for backwards compatibility; the app now passes the
+ *   app-wide UI language ([com.arnold.voicetranslator.ui.localization.UiLanguage])
+ *   so "Listen Japanese"/Live mode show the meaning in English when the
+ *   app's Origen selector is English, not hardcoded Spanish.
+ */
 @Serializable
 data class ConverseRequest(
     val text: String,
     val foreignLang: String,
+    val meaningLang: String = "es",
 )
 
 /** Response from POST /converse (already parsed server-side): translation +
@@ -83,30 +101,79 @@ data class SimulateTurnDto(
     val text: String,
 )
 
-/** Body for POST /simulate against the Cloudflare Worker proxy. */
+/**
+ * Body for POST /simulate against the Cloudflare Worker proxy.
+ *
+ * @param meaningLang language the "replySpanish"/"correction" meaning
+ *   fields come back in ("es"/"en"), driven by the app-wide UI language
+ *   ([com.arnold.voicetranslator.ui.localization.UiLanguage]) — NOT the
+ *   practiced [SimulationLanguage]. Defaults to "es" for backwards
+ *   compatibility.
+ */
 @Serializable
 data class SimulateRequest(
     val scenario: String,
     val language: String,
     val history: List<SimulateTurnDto> = emptyList(),
     val message: String,
+    val meaningLang: String = "es",
+)
+
+/**
+ * One suggested way the practicing user could reply next. [native] is what
+ * actually gets sent if tapped; [romanized]/[spanish] are what the chip
+ * displays. Now fetched via the separate, on-demand POST /suggestions (see
+ * [SuggestionsResponse]) — NOT inside every /simulate response anymore.
+ */
+@Serializable
+data class SimulateSuggestionDto(
+    val native: String = "",
+    val romanized: String = "",
+    val spanish: String = "",
 )
 
 /**
  * Response from POST /simulate: the AI's in-character reply, always fully in
- * the target language ([native]), plus its Latin-script romanization and a
- * short Spanish meaning. [userRomanized]/[userSpanish] are the romanization
- * and Spanish translation of the *user's own* last message (computed
- * server-side in the same DeepSeek call) — used to fill in the user's own
- * chat bubble, which previously showed only the raw target-language text.
+ * the target language ([replyNative]), plus its Latin-script romanization
+ * ([replyRomaji]) and short meaning ([replySpanish]). [correction] is an
+ * optional one-line correction of the user's last message (blank if none
+ * needed).
+ *
+ * Fix: this used to be 7 fields (native/romanized/spanish +
+ * userNative/userRomanized/userSpanish + replySuggestions) — ~500-600 output
+ * tokens, which pushed DeepSeek past 8s+ once the conversation history grew,
+ * causing "Servidor ocupado" hangs around the 9th message in Tienda. Trimmed
+ * to these 4 fields (~150-280 tokens); suggestions moved entirely to
+ * [SuggestionsResponse] (POST /suggestions), fetched on-demand instead of on
+ * every turn. As a trade-off, the user's own bubble no longer gets a full
+ * native-script retranslation ([correction] covers the common "you made a
+ * mistake" case instead) — see [SimulationViewModel.dispatchToBackend].
  */
 @Serializable
 data class SimulateResponse(
-    val native: String = "",
-    val romanized: String = "",
-    val spanish: String = "",
-    val userRomanized: String = "",
-    val userSpanish: String = "",
+    val replyNative: String = "",
+    val replyRomaji: String = "",
+    val replySpanish: String = "",
+    val correction: String = "",
+)
+
+/** Body for POST /suggestions against the Cloudflare Worker proxy. */
+@Serializable
+data class SuggestionsRequest(
+    val scenario: String,
+    val language: String,
+    val history: List<SimulateTurnDto> = emptyList(),
+    val meaningLang: String = "es",
+)
+
+/**
+ * Response from POST /suggestions: 3 contextual "what could I say next"
+ * options — fetched ONLY when the user taps "¿No sabes cómo decirlo?
+ * Escríbelo en español" in Simulation Mode, not on every /simulate turn.
+ */
+@Serializable
+data class SuggestionsResponse(
+    val suggestions: List<SimulateSuggestionDto> = emptyList(),
 )
 
 /** Body for POST /simulate-feedback. */

@@ -12,17 +12,28 @@ import java.util.Locale
  * removed) without ever touching those features.
  */
 
-/** Real-life scenario the AI roleplays as a native character in. */
+/**
+ * Real-life scenario the AI roleplays as a native character in.
+ *
+ * @param displayNameEn English label — used when [SimulationLanguage.ENGLISH]
+ *   is the language being practiced, so the whole screen switches to English
+ *   for that immersion mode instead of staying in Spanish regardless.
+ */
 enum class SimulationScenario(
     val id: String,
     val displayName: String,
+    val displayNameEn: String,
     val emoji: String,
 ) {
-    STORE(id = "tienda", displayName = "Tienda", emoji = "🛍️"),
-    HOTEL(id = "hotel", displayName = "Hotel", emoji = "🏨"),
-    RESTAURANT(id = "restaurante", displayName = "Restaurante", emoji = "🍽️"),
-    DATE(id = "cita", displayName = "Cita", emoji = "💖"),
-    WORK(id = "trabajo", displayName = "Trabajo", emoji = "💼"),
+    STORE(id = "tienda", displayName = "Tienda", displayNameEn = "Store", emoji = "🛍️"),
+    HOTEL(id = "hotel", displayName = "Hotel", displayNameEn = "Hotel", emoji = "🏨"),
+    RESTAURANT(id = "restaurante", displayName = "Restaurante", displayNameEn = "Restaurant", emoji = "🍽️"),
+    DATE(id = "cita", displayName = "Cita", displayNameEn = "Date", emoji = "💖"),
+    WORK(id = "trabajo", displayName = "Trabajo", displayNameEn = "Work", emoji = "💼"),
+    ;
+
+    /** Picks [displayName] or [displayNameEn] depending on the UI language. */
+    fun label(englishUi: Boolean): String = if (englishUi) displayNameEn else displayName
 }
 
 /**
@@ -40,42 +51,62 @@ enum class SimulationScenario(
 enum class SimulationLanguage(
     val id: String,
     val displayName: String,
+    val displayNameEn: String,
     val flagEmoji: String,
     val speechLocaleTag: String,
     val inputHint: String,
+    val inputHintEn: String,
 ) {
     JAPANESE(
         id = "ja",
         displayName = "Japonés",
+        displayNameEn = "Japanese",
         flagEmoji = "🇯🇵",
         speechLocaleTag = "ja-JP",
         inputHint = "Escribe o habla en japonés…",
+        inputHintEn = "Write or speak in Japanese…",
     ),
     KOREAN(
         id = "ko",
         displayName = "Coreano",
+        displayNameEn = "Korean",
         flagEmoji = "🇰🇷",
         speechLocaleTag = "ko-KR",
         inputHint = "Escribe o habla en coreano…",
+        inputHintEn = "Write or speak in Korean…",
     ),
     CHINESE(
         id = "zh",
         displayName = "Chino",
+        displayNameEn = "Chinese",
         flagEmoji = "🇨🇳",
         speechLocaleTag = "zh-CN",
         inputHint = "Escribe o habla en chino…",
+        inputHintEn = "Write or speak in Chinese…",
     ),
+    // Fix: selecting English as the practiced language now flips the whole
+    // Simulation Mode screen's own UI copy to English too (an "immersion"
+    // mode for English speakers) — every other language keeps the app's
+    // native Spanish/Mexican UI. See SimulationMode.kt's `englishUi` flag.
     ENGLISH(
         id = "en",
         displayName = "Inglés",
+        displayNameEn = "English",
         flagEmoji = "🇺🇸",
         speechLocaleTag = "en-US",
         inputHint = "Escribe o habla en inglés…",
+        inputHintEn = "Write or speak in English…",
     ),
     ;
 
     /** [Locale] derived from [speechLocaleTag], used by [android.speech.tts.TextToSpeech]. */
     val locale: Locale get() = Locale.forLanguageTag(speechLocaleTag)
+
+    /** Picks [displayName] or [displayNameEn] depending on the UI language. */
+    fun label(englishUi: Boolean): String = if (englishUi) displayNameEn else displayName
+
+    /** Picks [inputHint] or [inputHintEn] depending on the UI language. */
+    fun hint(englishUi: Boolean): String = if (englishUi) inputHintEn else inputHint
 }
 
 /** Who sent a given [SimulationMessage]. */
@@ -88,10 +119,12 @@ enum class SimulationSender { USER, AI }
  *   user actually typed/said — which, since the STT/hint fix, is normally in
  *   the practiced language (ja/ko/zh/en), not necessarily Spanish despite the
  *   field's name (kept for backwards compat with the history/transcript
- *   code). [romanized]/[spanishMeaning] are filled in afterwards
- *   from the Worker's `userRomanized`/`userSpanish` fields (see
- *   [SimulationViewModel.onSendMessage]) so the user's own bubble can show
- *   the same 3-line layout as the AI's.
+ *   code). [nativeScript]/[romanized] are left blank (no per-turn
+ *   retranslation anymore — see [SimulateResponse]'s fix note on the
+ *   9th-message token/latency blowup this avoids); [spanishMeaning] is
+ *   back-filled from the Worker's `correction` field if it flagged an error
+ *   in the user's message, otherwise stays blank (see
+ *   [SimulationViewModel.dispatchToBackend]).
  * - AI messages always carry all three: [nativeScript] (kana/hangul — shown
  *   large, MUST always be present, never romaji-only), [romanized] (small,
  *   gray, shown below), and [spanishMeaning] (smaller still, shown last).
@@ -105,8 +138,14 @@ data class SimulationMessage(
     val spanishMeaning: String = "",
 )
 
-/** How many past messages (both sides) are kept as context for each new AI reply. */
-const val SIMULATION_MEMORY_SIZE = 6
+/**
+ * How many past messages (both sides) are kept as context for each new AI
+ * reply. Fix: was 6 — with the "Cita" scenario's longer, more elaborate
+ * replies, the growing history (+ system prompt) pushed DeepSeek past the
+ * client timeout around message 4-5. Lowered to 4 to keep each /simulate
+ * call fast regardless of how long the conversation gets.
+ */
+const val SIMULATION_MEMORY_SIZE = 4
 
 /**
  * Hardcoded, per-scenario starter suggestions shown under the chat for

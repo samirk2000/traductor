@@ -1,7 +1,13 @@
 package com.arnold.voicetranslator.ui.state
 
+import androidx.compose.runtime.Composable
+import com.arnold.voicetranslator.R
+import com.arnold.voicetranslator.data.model.Language
 import com.arnold.voicetranslator.data.model.TargetLanguage
 import com.arnold.voicetranslator.data.model.TranslationResult
+import com.arnold.voicetranslator.ui.localization.UiLanguage
+import com.arnold.voicetranslator.ui.localization.localized
+import com.arnold.voicetranslator.ui.localization.toUiLanguage
 
 /**
  * The high-level operational state of the app's audio/translation pipeline,
@@ -22,15 +28,17 @@ enum class PipelineStatus {
 }
 
 /**
- * Human-readable, Spanish label shown in the top status indicator.
+ * Human-readable label shown in the top status indicator, localized to
+ * [uiLanguage] (app-wide UI language — see [TranslatorUiState.uiLanguage]),
+ * not just a fixed Spanish string anymore.
  */
-val PipelineStatus.statusText: String
-    get() = when (this) {
-        PipelineStatus.Idle -> "Listo"
-        PipelineStatus.Listening -> "Escuchando..."
-        PipelineStatus.Translating -> "Traduciendo..."
-        PipelineStatus.Speaking -> "Reproduciendo"
-    }
+@Composable
+fun PipelineStatus.localizedText(uiLanguage: UiLanguage): String = when (this) {
+    PipelineStatus.Idle -> localized(uiLanguage, R.string.status_idle)
+    PipelineStatus.Listening -> localized(uiLanguage, R.string.status_listening)
+    PipelineStatus.Translating -> localized(uiLanguage, R.string.status_translating)
+    PipelineStatus.Speaking -> localized(uiLanguage, R.string.status_speaking)
+}
 
 /**
  * Mode-selector for the microphone switch.
@@ -106,6 +114,17 @@ data class LiveChatEntry(
  */
 data class TranslatorUiState(
     val targetLanguage: TargetLanguage = TargetLanguage.JAPANESE,
+    /**
+     * Origen/Destino selector (Traductor): the standard "Hablar/Escribir en
+     * Origen" one-directional flow now translates [sourceLanguage] ->
+     * [destinationLanguage] instead of always assuming Spanish -> [targetLanguage].
+     * [targetLanguage] above is kept as-is (and kept roughly in sync with
+     * [destinationLanguage] — see MainViewModel.onSelectDestinationLanguage)
+     * purely for the untouched offline-model / live-conversation / "Escuchar
+     * idioma" code paths, which still key off the 4-language [TargetLanguage].
+     */
+    val sourceLanguage: Language = Language.DEFAULT_SOURCE,
+    val destinationLanguage: Language = Language.DEFAULT_DESTINATION,
     val status: PipelineStatus = PipelineStatus.Idle,
     val isOfflineMode: Boolean = false,
     val isModelDownloaded: Boolean = false,
@@ -141,6 +160,14 @@ data class TranslatorUiState(
     val liveTurn: LiveTurn? = null,
     /** Live (partial) transcript being heard during the current turn. */
     val liveTranscript: String = "",
+    /**
+     * Live (partial) transcript for the standard (non-live) "Hablar en
+     * Origen" / "Escuchar Idioma" mic flow — shown as a gray "Escuchando:
+     * ..." hint below the mic buttons so the user can see what's being
+     * heard while they're still talking, mirroring [liveTranscript] but not
+     * gated behind [isLiveConversation].
+     */
+    val partialTranscript: String = "",
     /** The rolling chat feed of the live conversation, oldest first. */
     val liveMessages: List<LiveChatEntry> = emptyList(),
     /** When true, the continuous foreign listening in live mode is paused. */
@@ -164,9 +191,20 @@ data class TranslatorUiState(
      */
     val voiceOfflineGuidance: String? = null,
 ) {
-    val statusText: String
-        get() = status.statusText
+    /**
+     * App-wide UI language (tabs, menus, buttons, hints — not just the
+     * translated content) derived from the Origen selector: English Origen
+     * -> English UI; everything else -> Spanish UI (the app's original,
+     * default UI language).
+     */
+    val uiLanguage: UiLanguage
+        get() = sourceLanguage.toUiLanguage()
 
     val micAction: MicAction
         get() = if (isListening) MicAction.Stop else MicAction.Start
+
+    /** False when Origen == Destino — the "Elige idiomas diferentes" case
+     *  where the mic/typing "traducir" actions must be disabled. */
+    val canTranslate: Boolean
+        get() = sourceLanguage != destinationLanguage
 }
