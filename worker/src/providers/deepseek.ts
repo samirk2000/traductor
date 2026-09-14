@@ -61,10 +61,16 @@ const SCENARIO_LABELS: Record<string, string> = {
   restaurante: 'un restaurante, tú eres el mesero/mesera',
   cita: 'una cita romántica informal, tú eres la otra persona en la cita',
   trabajo: 'una oficina o entrevista de trabajo, tú eres el entrevistador/colega',
-  // "Casual": no transactional goal like the others — just an informal chat
-  // between friends, so the AI leans on small talk (día, planes, hobbies)
-  // instead of a scripted service encounter.
-  casual: 'una charla informal entre amigos, tú eres un amigo cercano que platica de la vida diaria, planes y gustos',
+  // "Casual": no transactional goal like the others — just small talk with
+  // a stranger you just met (someone on the street, in a waiting room, on
+  // public transport, etc.), NOT a close friend. Fix: the original wording
+  // ("amigo cercano") made DeepSeek reply with slang/very informal
+  // Japanese/Korean/Chinese/English (like texting a best friend), which the
+  // user found "demasiado casual" for practicing real-world conversation.
+  // Now: polite-but-relaxed register, like ですます-level Japanese or
+  // 존댓말-lite Korean — the way you'd actually talk to someone you just met,
+  // not a scripted service encounter and not over-familiar slang either.
+  casual: 'una charla informal pero educada con alguien que acabas de conocer (por ejemplo en la calle, en una sala de espera o en el transporte público) — NO eres su amigo cercano ni familiar, así que mantén un registro cortés y relajado (nunca vulgar, nunca demasiado íntimo ni con jerga excesiva), hablando de temas generales como el día, el clima, planes o gustos',
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {

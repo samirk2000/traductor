@@ -126,6 +126,7 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
      * mid-request, instead of leaving it to eventually time out on its own.
      */
     private var currentSendJob: Job? = null
+    private var currentSuggestionsJob: Job? = null
 
     /**
      * How many /simulate calls in a row have failed (timeout or any other
@@ -181,6 +182,16 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         if (scenario == _uiState.value.scenario) return
         currentSendJob?.cancel()
         currentSendJob = null
+        // Fix: an in-flight /suggestions call from the OLD scenario used to
+        // keep isFetchingSuggestions=true after switching (that field is
+        // only ever reset from inside fetchSuggestions()'s own coroutine,
+        // which resetConversation() doesn't touch) — the guard at the top
+        // of fetchSuggestions() would then silently no-op every future call
+        // for the REST of the session, so "Sugerencias" would just freeze
+        // on stale/empty content. Cancel it explicitly, same as
+        // currentSendJob above.
+        currentSuggestionsJob?.cancel()
+        currentSuggestionsJob = null
         resetConversation()
         _uiState.update { it.copy(scenario = scenario) }
     }
@@ -189,6 +200,8 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         if (language == _uiState.value.language) return
         currentSendJob?.cancel()
         currentSendJob = null
+        currentSuggestionsJob?.cancel()
+        currentSuggestionsJob = null
         resetConversation()
         _uiState.update { it.copy(language = language) }
     }
@@ -276,6 +289,14 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         val state = _uiState.value
         val currentScenario = state.scenario
         val currentLanguage = state.language
+        // Fix: right after switching scenario/language (a fresh, empty
+        // conversation), the very first reply is exactly the moment a user
+        // is most likely to notice a slow/stuck "Escribiendo…" — don't pile
+        // an extra /suggestions call on top of that first /simulate call.
+        // The static per-scenario scenarioSuggestions() already covers turn
+        // 1 fine (see SimulationMode.kt's ifEmpty fallback); auto-refreshing
+        // dynamicSuggestions only kicks in from turn 2 onward.
+        val isFirstTurn = state.messages.none { it.sender == SimulationSender.AI }
         // Fix: was `currentLanguage == SimulationLanguage.ENGLISH` — meaning
         // error toasts flipped to English whenever the PRACTICED language
         // was English, not when the app's real UI language was English. See
@@ -381,7 +402,8 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                 // conversation instead of staying static. Fire-and-forget:
                 // failure just leaves the previous (still reasonable)
                 // suggestions on screen — see fetchSuggestions()'s catch.
-                fetchSuggestions()
+                // Skipped on turn 1 (see isFirstTurn above).
+                if (!isFirstTurn) fetchSuggestions()
             } catch (e: WorkerApiException) {
                 Log.e(TAG, "dispatchToBackend WorkerApiException", e)
                 handleDispatchFailure(englishUi, e.message)
@@ -471,7 +493,7 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         val state = _uiState.value
         if (state.isFetchingSuggestions) return
         _uiState.update { it.copy(isFetchingSuggestions = true) }
-        viewModelScope.launch {
+        currentSuggestionsJob = viewModelScope.launch {
             try {
                 val recentHistory = compressedHistory(state.messages).map { msg ->
                     SimulateTurnDto(
@@ -666,6 +688,7 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                 feedback = null,
                 dynamicSuggestions = emptyList(),
                 showSlowSendHint = false,
+                isFetchingSuggestions = false,
             )
         }
     }
