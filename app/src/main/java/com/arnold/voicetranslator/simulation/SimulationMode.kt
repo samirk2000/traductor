@@ -134,7 +134,18 @@ fun SimulationModeScreen(
     // practicing those languages would expect. Also flips to English
     // whenever the app-wide Origen selector is English, regardless of which
     // language is being practiced.
-    val englishUi = state.language == SimulationLanguage.ENGLISH || appUiLanguage == UiLanguage.EN
+    // Fix: this used to ALSO flip to English whenever the practiced language
+    // (state.language) was English — i.e. tapping "English" as what you want
+    // to practice made the whole Simulation screen's own chrome (buttons,
+    // scenario/language picker labels, error toasts, mic hint) switch to
+    // English too, exactly like changing the app-wide Origen/UI language from
+    // Ajustes. That's wrong: Simulation Mode is for a Spanish-speaking user
+    // practicing conversations in ja/ko/zh/en — the language being practiced
+    // must be fully independent from which language the screen's own UI is
+    // drawn in. Now `englishUi` (this screen's chrome language) follows ONLY
+    // the app's real UI language (appUiLanguage, driven by the Traductor's
+    // Origen selector), never the scenario/practice language chip.
+    val englishUi = appUiLanguage == UiLanguage.EN
     val texts = simCopy(englishUi)
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -204,11 +215,13 @@ fun SimulationModeScreen(
 
             SimulationSuggestions(
                 visible = state.suggestionsVisible,
-                // Fix: suggestions used to stay fixed the whole conversation
-                // (only ever the static per-scenario list). Now they follow
-                // the AI's last reply (dynamicSuggestions, from the same
-                // /simulate call) once there's been at least one AI turn;
-                // the static list only covers the very first message.
+                // Fix: suggestions used to stay fixed the whole conversation —
+                // dynamicSuggestions was only ever populated by manually
+                // tapping the Spanish helper, so the same 3 chips sat there
+                // the rest of the chat. Now SimulationViewModel.fetchSuggestions()
+                // is called again after every AI reply (see dispatchToBackend),
+                // so this refreshes each turn; the static per-scenario list
+                // only ever covers the very first message, before any AI turn.
                 suggestions = state.dynamicSuggestions.ifEmpty {
                     scenarioSuggestions(state.scenario, state.language)
                 },
@@ -326,6 +339,8 @@ private data class SimTexts(
     val yourLevelIn: String,
     val close: String,
     val retry: String,
+    /** Prefix for the "💡 Mejor: ..." correction badge — see [CorrectionHintBadge]. */
+    val betterSay: String,
 )
 
 private val ES_SIM_TEXTS = SimTexts(
@@ -351,6 +366,7 @@ private val ES_SIM_TEXTS = SimTexts(
     yourLevelIn = "Tu nivel en",
     close = "Cerrar",
     retry = "Reintentar",
+    betterSay = "Mejor",
 )
 
 private val EN_SIM_TEXTS = SimTexts(
@@ -380,6 +396,7 @@ private val EN_SIM_TEXTS = SimTexts(
     yourLevelIn = "Your level in",
     close = "Close",
     retry = "Retry",
+    betterSay = "Better",
 )
 
 private fun simCopy(englishUi: Boolean): SimTexts = if (englishUi) EN_SIM_TEXTS else ES_SIM_TEXTS
@@ -698,7 +715,7 @@ private fun SimulationChatArea(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
-                    SimulationChatBubble(message)
+                    SimulationChatBubble(message, englishUi)
                 }
                 if (isSending) {
                     item(key = "typing") {
@@ -716,78 +733,126 @@ private fun SimulationChatArea(
 
 /**
  * Chat bubble for both senders, showing up to 3 DISTINCT lines: native
- * script (large), romanization (medium, gray), Spanish meaning (small,
- * gray) — in that order, skipping any line that's blank or a duplicate of
- * one already shown.
+ * script (large), romanization (medium, gray), meaning in the app's UI
+ * language (small, gray) — in that order, skipping any line that's blank or
+ * a duplicate of one already shown. On the USER's own bubble, if their
+ * message wasn't quite right, a small amber "💡 Mejor: ..." hint is shown
+ * below — see [CorrectionHintBadge].
  *
  * Fix: the user bubble used to show the same string 3 times whenever the
- * Worker had nothing better to return for romanized/spanishMeaning (e.g. a
- * pure-Spanish message before the `userNative` fix). [bubbleLines] below
- * dedupes so only genuinely different representations are ever rendered.
+ * Worker had nothing better to return for romanized/spanishMeaning. Now the
+ * Worker always echoes the user's message back in 3 distinct forms
+ * (`userTranscription`/`userRomaji`/`userSpanish`), and [bubbleLines] below
+ * still dedupes for the rare case two of them coincide.
  */
 @Composable
-private fun SimulationChatBubble(message: SimulationMessage) {
+private fun SimulationChatBubble(message: SimulationMessage, englishUi: Boolean) {
     val isUser = message.sender == SimulationSender.USER
     val lines = bubbleLines(message, isUser)
+    // Fix: a beginner who wrote something wrong/nonsensical in the practiced
+    // language used to either see nothing about it, or (an earlier attempt)
+    // a correction rendered IN the practiced language they can't read yet.
+    // Now: only ever shown on the USER's own bubble, native script (to
+    // actually read/copy) + explanation ALWAYS in the UI language.
+    val showCorrection = isUser && !message.isCorrect && message.correctionNative.isNotBlank()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
-        Surface(
-            shape = RoundedCornerShape(
-                topStart = if (isUser) 16.dp else 4.dp,
-                topEnd = if (isUser) 4.dp else 16.dp,
-                bottomStart = 16.dp,
-                bottomEnd = 16.dp,
-            ),
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            },
-            modifier = Modifier.fillMaxWidth(0.85f),
-        ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                lines.forEachIndexed { index, line ->
-                    if (index > 0) Spacer(Modifier.size(4.dp))
-                    when (index) {
-                        // Regla de oro visual: SIEMPRE escritura nativa grande primero.
-                        0 -> Text(
-                            text = line,
-                            style = if (isUser) {
-                                MaterialTheme.typography.bodyLarge
-                            } else {
-                                MaterialTheme.typography.headlineSmall
-                            },
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isUser) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                        )
-                        1 -> Text(
-                            text = line,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (isUser) {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                        else -> Text(
-                            text = line,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isUser) {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                            },
-                        )
+        Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = if (isUser) 16.dp else 4.dp,
+                    topEnd = if (isUser) 4.dp else 16.dp,
+                    bottomStart = 16.dp,
+                    bottomEnd = 16.dp,
+                ),
+                color = if (isUser) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                },
+                modifier = Modifier.fillMaxWidth(0.85f),
+            ) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    lines.forEachIndexed { index, line ->
+                        if (index > 0) Spacer(Modifier.size(4.dp))
+                        when (index) {
+                            // Regla de oro visual: SIEMPRE escritura nativa grande primero.
+                            0 -> Text(
+                                text = line,
+                                style = if (isUser) {
+                                    MaterialTheme.typography.bodyLarge
+                                } else {
+                                    MaterialTheme.typography.headlineSmall
+                                },
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isUser) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                            )
+                            1 -> Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isUser) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                            else -> Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isUser) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                },
+                            )
+                        }
                     }
                 }
             }
+            if (showCorrection) {
+                Spacer(Modifier.size(4.dp))
+                CorrectionHintBadge(message, englishUi)
+            }
         }
+    }
+}
+
+/**
+ * "💡 Mejor: <correctionNative> (<correctionSpanish>)" badge shown right
+ * below a USER bubble whose message wasn't quite right — see
+ * [SimulationChatBubble]'s [showCorrection] check. Amber/yellow so it reads
+ * as a helpful tip, not an error.
+ */
+@Composable
+private fun CorrectionHintBadge(message: SimulationMessage, englishUi: Boolean) {
+    val texts = simCopy(englishUi)
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF7A5B00).copy(alpha = 0.25f),
+        modifier = Modifier.fillMaxWidth(0.85f),
+    ) {
+        Text(
+            text = buildString {
+                append("💡 ")
+                append(texts.betterSay)
+                append(": ")
+                append(message.correctionNative)
+                if (message.correctionSpanish.isNotBlank()) {
+                    append(" (")
+                    append(message.correctionSpanish)
+                    append(")")
+                }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFFFD54F),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        )
     }
 }
 

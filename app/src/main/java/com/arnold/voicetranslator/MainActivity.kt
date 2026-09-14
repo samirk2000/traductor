@@ -520,6 +520,15 @@ private fun TranslatorScreen(
                 pendingResult = state.result?.mainTranslation,
                 pendingRomaji = state.sourceRomaji ?: state.sourceText,
                 isTranslating = state.isTranslating,
+                // Fix: while the mic is actively listening (before speech
+                // recognition even finalizes), show the growing live partial
+                // transcript instead of nothing — otherwise the overlay looked
+                // "dead" the whole time someone was talking and only flashed
+                // a finished line in at the very end, which read as the
+                // previous line "erasing itself" rather than a live caption
+                // building up in real time.
+                isListening = state.isListening,
+                livePartialText = state.partialTranscript,
                 uiLanguage = uiLanguage,
                 onExit = onToggleSubtitles,
             )
@@ -1752,6 +1761,8 @@ private fun SubtitlesOverlay(
     pendingResult: String?,
     pendingRomaji: String?,
     isTranslating: Boolean,
+    isListening: Boolean,
+    livePartialText: String,
     uiLanguage: UiLanguage,
     onExit: () -> Unit,
 ) {
@@ -1759,8 +1770,11 @@ private fun SubtitlesOverlay(
     // historyList already includes the latest completed translation the
     // instant it lands (added in the same state update as `result`), so
     // showing history + the in-flight pending item would duplicate the last
-    // line. Only show a "…" placeholder while a translation is still running.
-    val itemCount = history.size + if (isTranslating) 1 else 0
+    // line. Show a live, growing line of what's currently being heard while
+    // listening, then a "…" placeholder once speech ends and translation is
+    // still in flight (both replaced by the real history line once it lands).
+    val showLivePartial = isListening && livePartialText.isNotBlank()
+    val itemCount = history.size + if (isTranslating || showLivePartial) 1 else 0
 
     LaunchedEffect(itemCount) {
         if (itemCount > 0) {
@@ -1799,7 +1813,7 @@ private fun SubtitlesOverlay(
                 .background(Color.Black.copy(alpha = 0.65f))
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
-            if (history.isEmpty() && !isTranslating) {
+            if (history.isEmpty() && !isTranslating && !showLivePartial) {
                 Text(
                     text = "…",
                     style = MaterialTheme.typography.titleLarge,
@@ -1816,14 +1830,22 @@ private fun SubtitlesOverlay(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     itemsIndexed(history, key = { index, _ -> index }) { index, item ->
-                        val isLatest = index == history.lastIndex && !isTranslating
+                        val isLatest = index == history.lastIndex && !isTranslating && !showLivePartial
                         SubtitleLine(
                             text = item.translation,
                             romaji = item.sourceRomaji?.takeIf { it != item.sourceText } ?: item.sourceText,
                             emphasized = isLatest,
                         )
                     }
-                    if (isTranslating) {
+                    if (showLivePartial) {
+                        // Live caption: grows word-by-word as speech is
+                        // recognized, still mid-utterance (nothing finalized
+                        // yet). Replaced by the "…" placeholder the instant
+                        // speech ends and translation starts.
+                        item(key = "live") {
+                            SubtitleLine(text = livePartialText, romaji = null, emphasized = true)
+                        }
+                    } else if (isTranslating) {
                         item(key = "pending") {
                             SubtitleLine(text = "…", romaji = pendingRomaji, emphasized = true)
                         }

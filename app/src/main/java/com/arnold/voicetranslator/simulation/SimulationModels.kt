@@ -30,6 +30,14 @@ enum class SimulationScenario(
     RESTAURANT(id = "restaurante", displayName = "Restaurante", displayNameEn = "Restaurant", emoji = "🍽️"),
     DATE(id = "cita", displayName = "Cita", displayNameEn = "Date", emoji = "💖"),
     WORK(id = "trabajo", displayName = "Trabajo", displayNameEn = "Work", emoji = "💼"),
+    /**
+     * Free-form, low-stakes chat with a friend/acquaintance — no
+     * transactional goal (no menu, no checkout, no interview), so the AI
+     * roleplays a casual friend making small talk, asking about the user's
+     * day/hobbies/plans, instead of the scripted service-encounter flow the
+     * other scenarios have.
+     */
+    CASUAL(id = "casual", displayName = "Casual", displayNameEn = "Casual", emoji = "💬"),
     ;
 
     /** Picks [displayName] or [displayNameEn] depending on the UI language. */
@@ -119,15 +127,22 @@ enum class SimulationSender { USER, AI }
  *   user actually typed/said — which, since the STT/hint fix, is normally in
  *   the practiced language (ja/ko/zh/en), not necessarily Spanish despite the
  *   field's name (kept for backwards compat with the history/transcript
- *   code). [nativeScript]/[romanized] are left blank (no per-turn
- *   retranslation anymore — see [SimulateResponse]'s fix note on the
- *   9th-message token/latency blowup this avoids); [spanishMeaning] is
- *   back-filled from the Worker's `correction` field if it flagged an error
- *   in the user's message, otherwise stays blank (see
- *   [SimulationViewModel.dispatchToBackend]).
+ *   code). [nativeScript]/[romanized]/[spanishMeaning] are back-filled from
+ *   the Worker's `userTranscription`/`userRomaji`/`userSpanish` fields (see
+ *   [SimulationViewModel.dispatchToBackend]) so the user's own bubble shows
+ *   romaji + a translation, not just the raw native-script text — otherwise
+ *   a beginner has no way to verify whether what they said/typed actually
+ *   means what they intended.
  * - AI messages always carry all three: [nativeScript] (kana/hangul — shown
  *   large, MUST always be present, never romaji-only), [romanized] (small,
  *   gray, shown below), and [spanishMeaning] (smaller still, shown last).
+ * - [isCorrect]/[correctionNative]/[correctionSpanish] are only ever set on
+ *   USER messages (from the same /simulate response, via `isUserCorrect`/
+ *   `correctionNative`/`correctionSpanish`) — when [isCorrect] is false, the
+ *   bubble shows a small "💡 Mejor: correctionNative (correctionSpanish)"
+ *   hint below the 3 normal lines. [correctionSpanish] is ALWAYS in the
+ *   app's UI language, never the practiced language — see
+ *   [com.arnold.voicetranslator.data.remote.SimulateResponse]'s fix note.
  */
 data class SimulationMessage(
     val id: String,
@@ -136,6 +151,9 @@ data class SimulationMessage(
     val nativeScript: String = "",
     val romanized: String = "",
     val spanishMeaning: String = "",
+    val isCorrect: Boolean = true,
+    val correctionNative: String = "",
+    val correctionSpanish: String = "",
 )
 
 /**
@@ -178,5 +196,10 @@ val SimulationScenario.starterSuggestions: List<String>
             "Cuénteme sobre el puesto",
             "¿Cuál es el horario?",
             "Tengo experiencia en esta área",
+        )
+        SimulationScenario.CASUAL -> listOf(
+            "¿Qué has hecho hoy?",
+            "¿Tienes planes para el fin de semana?",
+            "Cuéntame de ti",
         )
     }

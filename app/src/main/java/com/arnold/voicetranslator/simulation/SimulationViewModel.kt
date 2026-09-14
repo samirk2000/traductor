@@ -201,7 +201,10 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
     fun onMicToggle() {
         val state = _uiState.value
         if (!state.hasMicPermission) {
-            val message = if (state.language == SimulationLanguage.ENGLISH) {
+            // Fix: was keyed off the practiced language (state.language ==
+            // ENGLISH) instead of the app's real UI language — see the
+            // englishUi fix note on SimulationMode.kt's screen-chrome flag.
+            val message = if (appUiLanguage == UiLanguage.EN) {
                 "Microphone permission is required."
             } else {
                 "Se requiere permiso del micrófono."
@@ -273,7 +276,11 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
         val state = _uiState.value
         val currentScenario = state.scenario
         val currentLanguage = state.language
-        val englishUi = currentLanguage == SimulationLanguage.ENGLISH
+        // Fix: was `currentLanguage == SimulationLanguage.ENGLISH` — meaning
+        // error toasts flipped to English whenever the PRACTICED language
+        // was English, not when the app's real UI language was English. See
+        // the englishUi fix note on SimulationMode.kt's screen-chrome flag.
+        val englishUi = appUiLanguage == UiLanguage.EN
 
         val job = viewModelScope.launch {
             try {
@@ -296,11 +303,12 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                     val recentHistory = compressedHistory(state.messages).map { msg ->
                         SimulateTurnDto(
                             role = if (msg.sender == SimulationSender.USER) "user" else "ai",
-                            // Fix: without userNative anymore (see
-                            // SimulateResponse's fix note), user turns fall
-                            // back to the raw typed/spoken text — still fine
-                            // as context, just no longer guaranteed to be in
-                            // the practiced language's native script.
+                            // User turns prefer the already-translated
+                            // nativeScript (filled in from a previous
+                            // response's userTranscription) so conversation
+                            // memory stays in the practiced language once
+                            // available; falls back to the raw typed text
+                            // for the very first turn, before any response.
                             text = if (msg.sender == SimulationSender.USER) {
                                 msg.nativeScript.ifBlank { msg.spanishText }
                             } else {
@@ -334,16 +342,25 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                     spanishMeaning = response.replySpanish,
                 )
                 _uiState.update { current ->
-                    // Fix: the user's own bubble no longer gets a full
-                    // native-script retranslation (userNative/userRomanized/
-                    // userSpanish removed — see SimulateResponse's fix
-                    // note); [correction] is a much cheaper, still-useful
-                    // substitute: if the user's message had an error, show
-                    // it as the bubble's 3rd line instead of just repeating
-                    // the raw text (bubbleLines dedupes it away otherwise).
+                    // Fix: the user's own bubble used to show either the raw
+                    // typed text 3x deduped, or (a later attempt) a Spanish-
+                    // only "correction" with no romaji/translation of their
+                    // OWN message at all. Now back-filled with all 3 forms
+                    // (userTranscription/userRomaji/userSpanish) — same call,
+                    // no extra tokens vs. the fields it replaces — plus an
+                    // optional correction hint (native script to actually
+                    // read, explained in the UI language, never in the
+                    // practiced language) shown separately in the bubble.
                     val updatedMessages = current.messages.map { msg ->
                         if (msg.id == userMessage.id) {
-                            msg.copy(spanishMeaning = response.correction)
+                            msg.copy(
+                                nativeScript = response.userTranscription,
+                                romanized = response.userRomaji,
+                                spanishMeaning = response.userSpanish,
+                                isCorrect = response.isUserCorrect,
+                                correctionNative = response.correctionNative,
+                                correctionSpanish = response.correctionSpanish,
+                            )
                         } else {
                             msg
                         }
@@ -355,6 +372,16 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 }
                 speakAiReply(response.replyNative, currentLanguage)
+                // Fix: dynamicSuggestions used to only ever get populated by
+                // the user manually tapping "¿No sabes cómo decirlo?" — after
+                // that first fetch, the SAME 3 suggestions sat there for the
+                // rest of the conversation (they never reflected how the
+                // chat had moved on). Refresh them here, after every AI
+                // reply, so the "Sugerencias" row actually tracks the
+                // conversation instead of staying static. Fire-and-forget:
+                // failure just leaves the previous (still reasonable)
+                // suggestions on screen — see fetchSuggestions()'s catch.
+                fetchSuggestions()
             } catch (e: WorkerApiException) {
                 Log.e(TAG, "dispatchToBackend WorkerApiException", e)
                 handleDispatchFailure(englishUi, e.message)
@@ -435,9 +462,10 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * POST /suggestions — fetched ONLY on-demand (see [SimulationUiState.dynamicSuggestions]'s
-     * fix note), currently wired to expanding the "¿No sabes cómo decirlo?"
-     * helper ([onToggleSpanishHelper]).
+     * POST /suggestions — fetched after every AI turn in [dispatchToBackend]
+     * (so the "Sugerencias" row tracks the conversation instead of staying
+     * static) and also when expanding the "¿No sabes cómo decirlo?" helper
+     * ([onToggleSpanishHelper]) for an immediate refresh on first open.
      */
     fun fetchSuggestions() {
         val state = _uiState.value
@@ -513,7 +541,9 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 val transcript = buildTranscript(state)
                 val feedback = workerApi.simulateFeedback(transcript)
-                val englishUi = state.language == SimulationLanguage.ENGLISH
+                // Fix: chrome/UI-language messaging follows appUiLanguage,
+                // never the practiced language — see englishUi fix note above.
+                val englishUi = appUiLanguage == UiLanguage.EN
                 _uiState.update {
                     it.copy(
                         isGeneratingFeedback = false,
@@ -530,7 +560,7 @@ class SimulationViewModel(application: Application) : AndroidViewModel(applicati
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "onFinishAndGetFeedback error", e)
-                val englishUi = state.language == SimulationLanguage.ENGLISH
+                val englishUi = appUiLanguage == UiLanguage.EN
                 _uiState.update {
                     it.copy(
                         isGeneratingFeedback = false,
@@ -830,6 +860,28 @@ fun scenarioSuggestions(
             ScenarioSuggestion("Tell me about the position", "Tell me about the position", "Cuénteme sobre el puesto"),
             ScenarioSuggestion("What's the schedule?", "What's the schedule?", "¿Cuál es el horario?"),
             ScenarioSuggestion("I have experience in this field", "I have experience in this field", "Tengo experiencia en esta área"),
+        )
+    }
+    SimulationScenario.CASUAL -> when (language) {
+        SimulationLanguage.JAPANESE -> listOf(
+            ScenarioSuggestion("今日は何をした？", "Kyou wa nani o shita?", "¿Qué hiciste hoy?"),
+            ScenarioSuggestion("週末に予定ある？", "Shuumatsu ni yotei aru?", "¿Tienes planes para el fin de semana?"),
+            ScenarioSuggestion("趣味は何？", "Shumi wa nani?", "¿Cuál es tu pasatiempo?"),
+        )
+        SimulationLanguage.KOREAN -> listOf(
+            ScenarioSuggestion("오늘 뭐 했어?", "Oneul mwo haesseo?", "¿Qué hiciste hoy?"),
+            ScenarioSuggestion("주말에 계획 있어?", "Jumare gyehoek isseo?", "¿Tienes planes para el fin de semana?"),
+            ScenarioSuggestion("취미가 뭐야?", "Chwimiga mwoya?", "¿Cuál es tu pasatiempo?"),
+        )
+        SimulationLanguage.CHINESE -> listOf(
+            ScenarioSuggestion("你今天做了什么？", "Nǐ jīntiān zuò le shénme?", "¿Qué hiciste hoy?"),
+            ScenarioSuggestion("周末有什么计划？", "Zhōumò yǒu shénme jìhuà?", "¿Tienes planes para el fin de semana?"),
+            ScenarioSuggestion("你有什么爱好？", "Nǐ yǒu shénme àihào?", "¿Cuál es tu pasatiempo?"),
+        )
+        SimulationLanguage.ENGLISH -> listOf(
+            ScenarioSuggestion("What did you do today?", "What did you do today?", "¿Qué hiciste hoy?"),
+            ScenarioSuggestion("Do you have plans for the weekend?", "Do you have plans for the weekend?", "¿Tienes planes para el fin de semana?"),
+            ScenarioSuggestion("What's your hobby?", "What's your hobby?", "¿Cuál es tu pasatiempo?"),
         )
     }
 }

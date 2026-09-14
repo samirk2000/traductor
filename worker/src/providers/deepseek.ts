@@ -61,6 +61,10 @@ const SCENARIO_LABELS: Record<string, string> = {
   restaurante: 'un restaurante, tú eres el mesero/mesera',
   cita: 'una cita romántica informal, tú eres la otra persona en la cita',
   trabajo: 'una oficina o entrevista de trabajo, tú eres el entrevistador/colega',
+  // "Casual": no transactional goal like the others — just an informal chat
+  // between friends, so the AI leans on small talk (día, planes, hobbies)
+  // instead of a scripted service encounter.
+  casual: 'una charla informal entre amigos, tú eres un amigo cercano que platica de la vida diaria, planes y gustos',
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -71,8 +75,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 }
 
 /**
- * @param meaningLangLabel language the "replySpanish"/"correction" fields
- *   must come back in (see [meaningLangLabel]/[MEANING_LANGUAGE_LABELS]).
+ * @param meaningLangLabel language "userSpanish"/"correctionSpanish"/
+ *   "replySpanish" must come back in (see [meaningLangLabel]/[MEANING_LANGUAGE_LABELS]).
  *
  * Fix: the response used to require 7 fields — native/romanized/spanish for
  * the AI's own reply, userNative/userRomanized/userSpanish re-translating
@@ -80,17 +84,23 @@ const LANGUAGE_LABELS: Record<string, string> = {
  * in one DeepSeek call. That's ~500-600 output tokens, and once the
  * conversation history grew past ~8 turns the combined input+output made
  * DeepSeek regularly exceed 8s, tripping the client's timeout ("Servidor
- * ocupado" hang at the 9th message). Trimmed to 4 short fields (~150-280
- * tokens): the AI's own reply (3 forms) plus a single optional one-line
- * "correction" of the user's last message instead of a full 3-form
- * retranslation. Suggestions moved entirely to the separate, on-demand
- * POST /suggestions (see [systemSuggestions]) so they're no longer
- * generated on every turn — only when the user actually asks for help.
+ * ocupado" hang at the 9th message). Trimmed down, then a single
+ * "correction" field (in the meaning language) was tried — but that left
+ * the user's OWN bubble with no romaji/translation at all, and when a
+ * correction WAS shown it accidentally rendered in native script sometimes,
+ * which a beginner can't read either. Now: [SimulateResult.userTranscription]/
+ * [userRomaji]/[userSpanish] give the user's own message back in all 3
+ * forms (so they can verify what they actually said), and the optional
+ * correction is split into [correctionNative] (how to actually say it,
+ * native script — genuinely useful to *read*, unlike a spoken-only
+ * correction) plus [correctionSpanish] which explains it — ALWAYS in
+ * [meaningLangLabel], never in the practiced language, so a beginner can
+ * understand *why* without already knowing the language they're learning.
  */
 function systemSimulate(scenario: string, language: string, meaningLangLabel: string): string {
   const scenarioLabel = SCENARIO_LABELS[scenario] ?? scenario
   const languageLabel = LANGUAGE_LABELS[language] ?? language
-  return `Hablante nativo de ${languageLabel} en: ${scenarioLabel}. Actua siempre como ese personaje, nunca traductor/IA, nunca cambies de idioma. Responde SOLO en ${languageLabel} (escritura nativa), 1-2 frases, natural, coherente con el historial. El usuario puede escribirte en ${languageLabel} o en cualquier otro idioma. Si su último mensaje tiene un error gramatical o de vocabulario en ${languageLabel}, pon una corrección MUY breve en "correction" (en ${meaningLangLabel}, ej. "Mejor: ..."); si ya estaba bien o no fue en ${languageLabel}, deja correction vacío (""). Responde SOLO este JSON, nada de texto extra: {"replyNative":"tu respuesta en escritura nativa","replyRomaji":"su romanización","replySpanish":"su significado breve en ${meaningLangLabel}","correction":""}`
+  return `Hablante nativo de ${languageLabel} en: ${scenarioLabel}. Actua siempre como ese personaje, nunca traductor/IA, nunca cambies de idioma. El usuario puede escribirte en ${languageLabel} o en cualquier otro idioma. Responde SOLO este JSON, nada de texto extra: {"userTranscription":"el último mensaje del usuario TAL CUAL lo escribió, sin modificar","userRomaji":"romanización del mensaje del usuario SI estaba en ${languageLabel} (vacío si no)","userSpanish":"significado breve de lo que el usuario quiso decir, en ${meaningLangLabel}","isUserCorrect":true o false — true SOLO si escribió en ${languageLabel} Y es gramaticalmente correcto y tiene sentido en este contexto; false si tiene error, no tiene sentido, o no fue en ${languageLabel},"correctionNative":"SI isUserCorrect es false: la forma correcta/natural de decirlo en ${languageLabel} (escritura nativa). SI isUserCorrect es true: cadena vacía","correctionSpanish":"SI isUserCorrect es false: explicación MUY breve de la corrección, SIEMPRE en ${meaningLangLabel}, NUNCA en ${languageLabel} ni mezclado. SI isUserCorrect es true: cadena vacía","replyNative":"tu respuesta en personaje, SOLO en ${languageLabel} (escritura nativa), 1-2 frases, natural, coherente con el historial","replyRomaji":"romanización de replyNative","replySpanish":"significado breve de tu respuesta, en ${meaningLangLabel}"}`
 }
 
 /**
@@ -118,16 +128,27 @@ export interface SimulateSuggestionDto {
 }
 
 /**
- * Result of POST /simulate — trimmed to 4 short fields (see [systemSimulate]'s
- * fix note) to keep output tokens low and avoid the "Servidor ocupado"
- * timeouts that used to hit around the 9th message.
+ * Result of POST /simulate — see [systemSimulate]'s fix note. Kept as few
+ * fields as possible while still letting the user's own bubble show
+ * romaji + translation (not just raw native script/a Spanish-only
+ * correction) — see [SimulationViewModel.dispatchToBackend].
  */
 export interface SimulateResult {
+  /** The user's last message, verbatim (echoed back so the client doesn't need to re-store it). */
+  userTranscription: string
+  /** Romanization of userTranscription, or "" if it wasn't in the practiced language. */
+  userRomaji: string
+  /** Short meaning of what the user said, in the meaning language. */
+  userSpanish: string
+  /** False if the user's message had a grammar/vocab error or wasn't in the practiced language. */
+  isUserCorrect: boolean
+  /** How to correctly say it (native script), or "" if isUserCorrect. */
+  correctionNative: string
+  /** Brief explanation of the correction, ALWAYS in the meaning language, or "" if isUserCorrect. */
+  correctionSpanish: string
   replyNative: string
   replyRomaji: string
   replySpanish: string
-  /** Brief correction of the user's last message, or "" if none needed. */
-  correction: string
 }
 
 /** Result of POST /suggestions — 3 contextual "what to say next" options. */
@@ -322,22 +343,35 @@ export async function callSimulate(
     apiKey,
     systemSimulate(scenario, language, meaningLangLabel(meaningLang)),
     userContent,
-    // Fix: 280 (was the shared 512) — the trimmed 4-field JSON response
-    // never needs more than ~200 tokens; capping it lower also means
-    // DeepSeek can't ramble past the point of usefulness and cuts latency.
-    280,
+    // Fix: 380 (was 280) — the user-facing fields (userTranscription/
+    // userRomaji/userSpanish/correctionNative/correctionSpanish) added back
+    // ~120-150 tokens vs. the single "correction" field this replaced, but
+    // are what actually let a beginner verify what they said — still well
+    // under the original 7-field/~600-token shape that caused the 9th-
+    // message timeout.
+    380,
   )
   const parsed = parseJsonLoose<{
+    userTranscription?: string
+    userRomaji?: string
+    userSpanish?: string
+    isUserCorrect?: boolean
+    correctionNative?: string
+    correctionSpanish?: string
     replyNative?: string
     replyRomaji?: string
     replySpanish?: string
-    correction?: string
   }>(raw)
   return {
+    userTranscription: parsed?.userTranscription?.trim() || userMessage,
+    userRomaji: parsed?.userRomaji?.trim() || '',
+    userSpanish: parsed?.userSpanish?.trim() || '',
+    isUserCorrect: parsed?.isUserCorrect ?? true,
+    correctionNative: parsed?.correctionNative?.trim() || '',
+    correctionSpanish: parsed?.correctionSpanish?.trim() || '',
     replyNative: parsed?.replyNative?.trim() || raw.trim(),
     replyRomaji: parsed?.replyRomaji?.trim() || '',
     replySpanish: parsed?.replySpanish?.trim() || '',
-    correction: parsed?.correction?.trim() || '',
   }
 }
 

@@ -226,18 +226,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             offlineVoiceRetryCount = 0
             cancelAutoRetry()
             Log.d(TAG, "speech onResult: \"$text\"")
-            _uiState.update {
-                it.copy(
-                    isListening = false,
-                    liveTranscript = "",
-                    partialTranscript = "",
-                )
-            }
+            // Fix: this used to immediately clear liveTranscript/partialTranscript
+            // here, the instant speech recognition finished — but translation
+            // (the /translate or /converse network call) still takes ~1-2s
+            // after that, so the "Escuchando: ..."/live-subtitle line would go
+            // blank for that whole gap before the final translation appeared,
+            // looking like it "erased itself" rather than smoothly continuing.
+            // Now the transcript is left on screen (still showing what was just
+            // said) through the translating phase, and only cleared once the
+            // translated result actually lands — see the historyList/liveMessages
+            // updates in handleTranslationSuccess() and the error paths below.
+            _uiState.update { it.copy(isListening = false) }
             if (text.isBlank()) {
                 _uiState.update {
                     it.copy(
                         status = PipelineStatus.Idle,
                         errorMessage = localizedText(R.string.no_text_captured),
+                        liveTranscript = "",
+                        partialTranscript = "",
                     )
                 }
             } else {
@@ -1011,11 +1017,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Specific "modo avión" case: don't just show an error banner,
                 // prompt to download the exact missing model.
                 lastSpeechText = null
+                // Fix: same liveTranscript/partialTranscript "stuck through the
+                // translating gap" fix as onTranslationReady — but on the error
+                // paths there's no result to replace it with, so clear it here
+                // instead of leaving stale "Escuchando: ..." text on screen
+                // next to an error message.
                 _uiState.update {
                     it.copy(
                         status = PipelineStatus.Idle,
                         isTranslating = false,
                         missingOfflineModelPrompt = e.target,
+                        liveTranscript = "",
+                        partialTranscript = "",
                     )
                 }
             } catch (e: MlKitOfflineException) {
@@ -1025,6 +1038,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         status = PipelineStatus.Idle,
                         isTranslating = false,
                         errorMessage = e.message ?: localizedText(R.string.offline_translation_error),
+                        liveTranscript = "",
+                        partialTranscript = "",
                     )
                 }
             } catch (e: WorkerApiException) {
@@ -1035,6 +1050,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         status = PipelineStatus.Idle,
                         isTranslating = false,
                         errorMessage = e.message ?: localizedText(R.string.translation_error),
+                        liveTranscript = "",
+                        partialTranscript = "",
                     )
                 }
             } catch (e: Exception) {
@@ -1045,6 +1062,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         status = PipelineStatus.Idle,
                         isTranslating = false,
                         errorMessage = localizedText(R.string.unexpected_error),
+                        liveTranscript = "",
+                        partialTranscript = "",
                     )
                 }
             }
@@ -1251,7 +1270,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isSpeaking = false,
                     errorMessage = null,
                     liveTurn = if (isForeignSpeech) LiveTurn.THEM else LiveTurn.YOU,
-                    liveMessages = it.liveMessages + LiveChatEntry(
+                    // Fix: now that this turn has a permanent LiveChatEntry
+                    // below, the temporary "being heard" line has served its
+                    // purpose — clear it here instead of the instant speech
+                    // recognition finished (see speechManager.onResult's fix
+                    // note), so it stays visible through the translating gap.
+                    liveTranscript = "",
+                    // Fix: unbounded growth during a long live-conversation/
+                    // subtitles session — capped to the most recent
+                    // MAX_TRANSCRIPT_HISTORY entries so memory doesn't grow
+                    // forever; the overlay only ever shows the last few
+                    // screens' worth anyway.
+                    liveMessages = (it.liveMessages + LiveChatEntry(
                         turn = if (isForeignSpeech) LiveTurn.THEM else LiveTurn.YOU,
                         text = state.sourceText ?: "",
                         translation = result.mainTranslation,
@@ -1271,7 +1301,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             null
                         },
-                    ),
+                    )).takeLast(MAX_TRANSCRIPT_HISTORY),
                 )
             }
             // On the user's spoken (Spanish) turn, read the translation aloud in
@@ -1291,13 +1321,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = if (autoSpeak) PipelineStatus.Speaking else PipelineStatus.Idle,
                 isTranslating = false,
                 isSpeaking = autoSpeak,
+                // Fix: see the liveTranscript fix note above — same gap
+                // existed here for the standard (non-live) "Escuchando: ..."
+                // hint; now cleared only once historyList actually has the
+                // finished translation to show instead.
+                partialTranscript = "",
                 errorMessage = null,
-                historyList = it.historyList + TranslationHistoryItem(
+                // Fix: capped to MAX_TRANSCRIPT_HISTORY (same as liveMessages
+                // above) so a long Subtítulos session doesn't grow this list
+                // forever — it's only ever displayed as a scrolling log, so
+                // older-than-that entries are just wasted memory.
+                historyList = (it.historyList + TranslationHistoryItem(
                     sourceText = autoSourceText,
                     sourceRomaji = state.sourceRomaji,
                     translation = result.mainTranslation,
                     isJapaneseInput = isForeignSpeech,
-                ),
+                )).takeLast(MAX_TRANSCRIPT_HISTORY),
             )
         }
         // Only the *automatic* read-out respects the auto-speak toggle. Tapping
@@ -1425,6 +1464,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val AUTO_RETRY_SILENCE_MILLIS = 3_000L
         /** Characters that only appear in Spanish, never in Hepburn romaji. */
         val SPANISH_ONLY_MARKERS = Regex("[áéíóúñÁÉÍÓÚÑ¿¡]")
+        /** Caps [TranslatorUiState.historyList] / [TranslatorUiState.liveMessages]
+         *  growth during a long Subtítulos/Live session — old enough entries
+         *  have scrolled off screen anyway, so keeping them only wastes memory. */
+        const val MAX_TRANSCRIPT_HISTORY = 200
 
         /** SharedPreferences bucket persisting the chosen source/target languages. */
         const val LANGUAGE_PREFS_NAME = "translator_language_prefs"

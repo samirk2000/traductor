@@ -133,28 +133,38 @@ data class SimulateSuggestionDto(
 )
 
 /**
- * Response from POST /simulate: the AI's in-character reply, always fully in
- * the target language ([replyNative]), plus its Latin-script romanization
- * ([replyRomaji]) and short meaning ([replySpanish]). [correction] is an
- * optional one-line correction of the user's last message (blank if none
- * needed).
+ * Response from POST /simulate: the AI's in-character reply
+ * ([replyNative]/[replyRomaji]/[replySpanish]), PLUS the user's own last
+ * message echoed back in 3 forms ([userTranscription]/[userRomaji]/
+ * [userSpanish]) so their own bubble can show romaji + a translation
+ * instead of just the raw native-script text they typed/said. [isUserCorrect]
+ * flags whether that message was correct target-language usage; when
+ * `false`, [correctionNative] is how to actually say it (native script,
+ * genuinely useful to *read*) and [correctionSpanish] explains why, ALWAYS
+ * in the app's UI language (`meaningLang`), never in the practiced language
+ * — a beginner can't understand a correction written in the language
+ * they're still learning.
  *
- * Fix: this used to be 7 fields (native/romanized/spanish +
- * userNative/userRomanized/userSpanish + replySuggestions) — ~500-600 output
- * tokens, which pushed DeepSeek past 8s+ once the conversation history grew,
- * causing "Servidor ocupado" hangs around the 9th message in Tienda. Trimmed
- * to these 4 fields (~150-280 tokens); suggestions moved entirely to
- * [SuggestionsResponse] (POST /suggestions), fetched on-demand instead of on
- * every turn. As a trade-off, the user's own bubble no longer gets a full
- * native-script retranslation ([correction] covers the common "you made a
- * mistake" case instead) — see [SimulationViewModel.dispatchToBackend].
+ * Fix: an earlier version of this endpoint replaced the whole
+ * userNative/userRomanized/userSpanish trio with a single "correction"
+ * field (in the meaning language) to cut tokens — but that left the user's
+ * OWN bubble with no romaji/translation at all, and displayed corrections
+ * with no native-script form to actually copy/read. Restored the user-side
+ * 3-form breakdown, but with the correction properly split into a native
+ * (readable) form and an ALWAYS-meaning-language explanation, instead of
+ * ever mixing native script into the explanation.
  */
 @Serializable
 data class SimulateResponse(
+    val userTranscription: String = "",
+    val userRomaji: String = "",
+    val userSpanish: String = "",
+    val isUserCorrect: Boolean = true,
+    val correctionNative: String = "",
+    val correctionSpanish: String = "",
     val replyNative: String = "",
     val replyRomaji: String = "",
     val replySpanish: String = "",
-    val correction: String = "",
 )
 
 /** Body for POST /suggestions against the Cloudflare Worker proxy. */
