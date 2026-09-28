@@ -38,9 +38,7 @@ fun Language.toUiLanguage(): UiLanguage =
 fun localized(uiLanguage: UiLanguage, @StringRes id: Int): String {
     val context = LocalContext.current
     return remember(uiLanguage, id) {
-        val config = Configuration(context.resources.configuration)
-        config.setLocale(Locale(uiLanguage.localeTag))
-        context.createConfigurationContext(config).getString(id)
+        contextFor(context, uiLanguage).getString(id)
     }
 }
 
@@ -50,9 +48,7 @@ fun localized(uiLanguage: UiLanguage, @StringRes id: Int, vararg formatArgs: Any
     val context = LocalContext.current
     val argsKey = formatArgs.joinToString()
     return remember(uiLanguage, id, argsKey) {
-        val config = Configuration(context.resources.configuration)
-        config.setLocale(Locale(uiLanguage.localeTag))
-        context.createConfigurationContext(config).getString(id, *formatArgs)
+        contextFor(context, uiLanguage).getString(id, *formatArgs)
     }
 }
 
@@ -63,10 +59,24 @@ fun localized(uiLanguage: UiLanguage, @StringRes id: Int, vararg formatArgs: Any
  * Compose scope to call [LocalContext.current] from.
  */
 fun localizedString(context: Context, uiLanguage: UiLanguage, @StringRes id: Int, vararg formatArgs: Any): String {
+    val localizedContext = contextFor(context, uiLanguage)
+    return if (formatArgs.isEmpty()) localizedContext.getString(id) else localizedContext.getString(id, *formatArgs)
+}
+
+/**
+ * A locale-overridden context. Layout renderers used for screenshots sometimes
+ * return null from [Context.createConfigurationContext]; a device does not.
+ */
+private fun contextFor(context: Context, uiLanguage: UiLanguage): Context {
     val config = Configuration(context.resources.configuration)
     config.setLocale(Locale(uiLanguage.localeTag))
-    val localizedContext = context.createConfigurationContext(config)
-    return if (formatArgs.isEmpty()) localizedContext.getString(id) else localizedContext.getString(id, *formatArgs)
+    val created: Context? = try {
+        @Suppress("USELESS_CAST")
+        context.createConfigurationContext(config) as Context?
+    } catch (_: NullPointerException) {
+        null
+    }
+    return created ?: context
 }
 
 /**

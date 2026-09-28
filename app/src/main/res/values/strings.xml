@@ -132,4 +132,45 @@
     <string name="remove_favorite_cd">Remove from favorites</string>
     <string name="add_favorite_cd">Add to favorites</string>
     <string name="listen_cd">Listen</string>
+
+    <!-- Learn to write -->
+    <string name="tab_writing">Learn to write</string>
+    <string name="writing_level">Level %1$d</string>
+    <string name="writing_hiragana">Hiragana</string>
+    <string name="writing_katakana">Katakana</string>
+    <string name="writing_mixed">Mixed</string>
+    <string name="writing_lesson">Lesson %1$d</string>
+    <string name="writing_learned">Learned</string>
+    <string name="writing_locked">Locked</string>
+    <string name="writing_available">Available</string>
+    <string name="writing_smart_review">Smart Review</string>
+    <string name="writing_review_all">Review All</string>
+    <string name="writing_prompt">Write this character…</string>
+    <string name="writing_show_hint">Show Hint</string>
+    <string name="writing_intro_title">Writing Lessons</string>
+    <string name="writing_intro_each">Each new character has a writing lesson.</string>
+    <string name="writing_intro_draw">Draw each stroke from the green dot to the red dot.</string>
+    <string name="writing_green_word">green</string>
+    <string name="writing_red_word">red</string>
+    <string name="writing_intro_optional">The writing lessons are optional and can be turned off in the settings menu.</string>
+    <string name="writing_ok">OK</string>
+    <string name="writing_settings">Settings</string>
+    <string name="writing_lessons_toggle">Writing lessons</string>
+    <string name="writing_lessons_toggle_desc">Shows stroke order, the start and end dots, and the hint.</string>
+    <string name="writing_list_view">List view</string>
+    <string name="writing_grid_view">Grid view</string>
+    <string name="writing_play">Play stroke order</string>
+    <string name="writing_lesson_done">Lesson complete!</string>
+    <string name="writing_lesson_done_body">The next lesson is now unlocked.</string>
+    <string name="writing_level_done_body">You finished every lesson in this level.</string>
+    <string name="writing_review_done">Review complete!</string>
+    <string name="writing_review_done_body">Nice work. Characters you miss will come back in Smart Review.</string>
+    <string name="writing_continue">Continue</string>
+    <string name="writing_stroke_wrong">That stroke doesn\'t match. Follow the dots.</string>
+    <string name="writing_stroke_direction">Wrong direction. Start at the green dot.</string>
+    <string name="writing_stroke_short">That stroke is too short.</string>
+    <string name="writing_locked_toast">Finish the previous lesson to unlock this one.</string>
+    <string name="writing_missing_glyph">This character has no stroke data.</string>
+    <string name="writing_attribution">Strokes from KanjiVG © Ulrich Apel, CC BY-SA 3.0.</string>
+    <string name="writing_canvas_cd">Canvas for tracing the character</string>
 </resources>

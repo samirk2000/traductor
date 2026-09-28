@@ -1,0 +1,14 @@
+Stroke geometry in strokes.json is derived from KanjiVG.
+
+KanjiVG — https://kanjivg.tagaini.net
+Source repository: https://github.com/KanjiVG/kanjivg
+Copyright © 2009-2023 Ulrich Apel and contributors.
+
+KanjiVG is licensed under the Creative Commons Attribution-Share Alike 3.0
+license (https://creativecommons.org/licenses/by-sa/3.0/). You must attribute
+KanjiVG and link to its website. If you alter or build upon this work, you may
+distribute the result only under the same or a similar license.
+
+strokes.json flattens KanjiVG SVG stroke paths (cubic Béziers) into polylines
+for on-device handwriting practice. That transformed stroke data is distributed
+under CC BY-SA 3.0. The rest of this application is not covered by that license.

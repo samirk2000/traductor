@@ -130,4 +130,45 @@
     <string name="remove_favorite_cd">Quitar de favoritos</string>
     <string name="add_favorite_cd">Agregar a favoritos</string>
     <string name="listen_cd">Escuchar</string>
+
+    <!-- Aprende a escribir -->
+    <string name="tab_writing">Aprende a escribir</string>
+    <string name="writing_level">Nivel %1$d</string>
+    <string name="writing_hiragana">Hiragana</string>
+    <string name="writing_katakana">Katakana</string>
+    <string name="writing_mixed">Mixto</string>
+    <string name="writing_lesson">Lección %1$d</string>
+    <string name="writing_learned">Aprendida</string>
+    <string name="writing_locked">Bloqueada</string>
+    <string name="writing_available">Disponible</string>
+    <string name="writing_smart_review">Repaso inteligente</string>
+    <string name="writing_review_all">Repasar todo</string>
+    <string name="writing_prompt">Escribe este carácter…</string>
+    <string name="writing_show_hint">Mostrar pista</string>
+    <string name="writing_intro_title">Lecciones de escritura</string>
+    <string name="writing_intro_each">Cada carácter nuevo tiene una lección de escritura.</string>
+    <string name="writing_intro_draw">Traza cada trazo desde el punto verde hasta el punto rojo.</string>
+    <string name="writing_green_word">verde</string>
+    <string name="writing_red_word">rojo</string>
+    <string name="writing_intro_optional">Las lecciones de escritura son opcionales y se pueden desactivar en el menú de ajustes.</string>
+    <string name="writing_ok">Aceptar</string>
+    <string name="writing_settings">Ajustes</string>
+    <string name="writing_lessons_toggle">Lecciones de escritura</string>
+    <string name="writing_lessons_toggle_desc">Muestra el orden de los trazos, los puntos de inicio y fin, y la pista.</string>
+    <string name="writing_list_view">Vista de lista</string>
+    <string name="writing_grid_view">Vista de cuadrícula</string>
+    <string name="writing_play">Reproducir orden de trazos</string>
+    <string name="writing_lesson_done">¡Lección completada!</string>
+    <string name="writing_lesson_done_body">La siguiente lección ya está desbloqueada.</string>
+    <string name="writing_level_done_body">Completaste todas las lecciones de este nivel.</string>
+    <string name="writing_review_done">¡Repaso completado!</string>
+    <string name="writing_review_done_body">Buen trabajo. Los caracteres que falles volverán en el repaso inteligente.</string>
+    <string name="writing_continue">Continuar</string>
+    <string name="writing_stroke_wrong">Ese trazo no coincide. Sigue los puntos.</string>
+    <string name="writing_stroke_direction">La dirección no es correcta. Empieza en el punto verde.</string>
+    <string name="writing_stroke_short">El trazo es demasiado corto.</string>
+    <string name="writing_locked_toast">Completa la lección anterior para desbloquear esta.</string>
+    <string name="writing_missing_glyph">Este carácter no tiene datos de trazo.</string>
+    <string name="writing_attribution">Trazos de KanjiVG © Ulrich Apel, licencia CC BY-SA 3.0.</string>
+    <string name="writing_canvas_cd">Lienzo para trazar el carácter</string>
 </resources>

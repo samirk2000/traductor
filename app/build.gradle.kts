@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("app.cash.paparazzi") version "1.3.5"
 }
 
 android {
@@ -91,4 +92,6 @@ dependencies {
     implementation(libs.kuromoji.ipadic)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation("junit:junit:4.13.2")
 }
