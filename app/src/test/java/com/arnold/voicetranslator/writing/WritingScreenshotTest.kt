@@ -60,35 +60,96 @@ class WritingScreenshotTest {
     }
 
     @Test
-    fun practice() {
-        snap("practice") {
-            WritingCourse(
-                state = WritingUiState(
-                    screen = WritingScreenKind.Practice,
-                    writingLessonsEnabled = true,
-                    practice = PracticeState(
-                        mode = PracticeMode.Lesson,
-                        headline = "agua",
-                        subtitle = "mizu",
-                        character = "み",
-                        strokes = glyphs.getValue("み"),
-                        strokeIndex = 0,
-                        glyphIndex = 0,
-                        glyphCount = 2,
-                        itemIndex = 0,
-                        itemCount = 4,
-                        showGuide = true,
-                        showHint = false,
-                        error = null,
-                        justCleared = false,
-                        sessionComplete = false,
-                        unlockedNext = false,
-                    ),
-                ),
-                uiLanguage = UiLanguage.ES,
-                actions = noopActions(),
+    fun teach() {
+        snap("teach") {
+            practiceSnap(
+                headline = "あ",
+                subtitle = "a",
+                character = "あ",
+                phase = PracticePhase.Teach,
+                guide = GuideStyle.Full,
             )
         }
+    }
+
+    @Test
+    fun fading() {
+        snap("fading") {
+            practiceSnap(
+                headline = "あ",
+                subtitle = "a",
+                character = "あ",
+                phase = PracticePhase.Fade,
+                guide = GuideStyle.Faint,
+            )
+        }
+    }
+
+    @Test
+    fun recall() {
+        snap("recall") {
+            practiceSnap(
+                headline = "a",
+                subtitle = "",
+                character = "あ",
+                phase = PracticePhase.Recall,
+                guide = GuideStyle.None,
+            )
+        }
+    }
+
+    @Test
+    fun mistake() {
+        snap("mistake") {
+            practiceSnap(
+                headline = "あ",
+                subtitle = "a",
+                character = "あ",
+                phase = PracticePhase.Repair,
+                guide = GuideStyle.Full,
+                repair = true,
+            )
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun practiceSnap(
+        headline: String,
+        subtitle: String,
+        character: String,
+        phase: PracticePhase,
+        guide: GuideStyle,
+        repair: Boolean = false,
+    ) {
+        WritingCourse(
+            state = WritingUiState(
+                screen = WritingScreenKind.Practice,
+                writingLessonsEnabled = true,
+                practice = PracticeState(
+                    mode = PracticeMode.Lesson,
+                    headline = headline,
+                    subtitle = subtitle,
+                    character = character,
+                    strokes = glyphs.getValue(character),
+                    strokeIndex = 0,
+                    glyphIndex = 0,
+                    glyphCount = 1,
+                    itemIndex = 0,
+                    itemCount = 5,
+                    phase = phase,
+                    guideStyle = guide,
+                    showHint = false,
+                    error = null,
+                    justCleared = false,
+                    sessionComplete = false,
+                    unlockedNext = false,
+                    autoPlay = false,
+                    showRepairNote = repair,
+                ),
+            ),
+            uiLanguage = UiLanguage.ES,
+            actions = noopActions(),
+        )
     }
 
     @Test
@@ -121,6 +182,7 @@ class WritingScreenshotTest {
                     uiLanguage = UiLanguage.ES,
                     onClose = {},
                     onToggleLessons = {},
+                    onBeginnerMode = {},
                     onTolerance = {},
                     onRestore = {},
                     onDebugUnlock = {},
@@ -161,9 +223,11 @@ class WritingScreenshotTest {
         onOpenSettings = {},
         onCloseSettings = {},
         onToggleLessons = {},
+        onBeginnerMode = {},
         onDismissIntro = {},
         onStroke = {},
         onHint = {},
+        onGiveUp = {},
         onClosePractice = {},
         onDismissNotice = {},
     )

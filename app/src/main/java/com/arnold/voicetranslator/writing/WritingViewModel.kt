@@ -62,12 +62,15 @@ data class PracticeState(
     val glyphCount: Int,
     val itemIndex: Int,
     val itemCount: Int,
-    val showGuide: Boolean,
+    val phase: PracticePhase,
+    val guideStyle: GuideStyle,
     val showHint: Boolean,
     val error: StrokeVerdict?,
     val justCleared: Boolean,
     val sessionComplete: Boolean,
     val unlockedNext: Boolean,
+    val autoPlay: Boolean = false,
+    val showRepairNote: Boolean = false,
 )
 
 data class WritingUiState(
@@ -88,6 +91,7 @@ data class WritingUiState(
     val practice: PracticeState? = null,
     val introStrokes: List<List<Vec>> = emptyList(),
     val uiLanguage: UiLanguage = UiLanguage.ES,
+    val beginnerMode: Boolean = false,
 )
 
 /**
@@ -223,6 +227,12 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         emit()
     }
 
+    fun setBeginnerMode(enabled: Boolean) {
+        progress = progress.copy(beginnerMode = enabled)
+        persist()
+        emit()
+    }
+
     fun dismissIntro() {
         showIntro = false
         progress = progress.copy(introSeen = true)
@@ -245,15 +255,35 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
 
     fun showHint() {
         val current = session ?: return
-        if (current.complete || current.cleared) return
-        session = current.copy(hint = true)
+        if (current.complete || current.cleared || current.queue.isEmpty()) return
+        val phase = current.queue.first().phase
+        if (phase == PracticePhase.Recall) {
+            val item = current.items.getValue(current.queue.first().itemId)
+            if (!current.aided) {
+                val now = System.currentTimeMillis()
+                progress = WritingProgress.withMistake(progress, item.id, now)
+                progress = WritingProgress.withLapse(progress, item.id, now)
+                persist()
+            }
+            session = current.copy(hint = true, aided = true)
+        } else if (phase == PracticePhase.Fade) {
+            session = current.copy(hint = true)
+        }
         emit()
+    }
+
+    fun giveUp() {
+        val current = session ?: return
+        if (current.complete || current.cleared || current.queue.isEmpty()) return
+        if (current.queue.first().phase != PracticePhase.Recall) return
+        enterRepair(current)
     }
 
     fun onStrokeFinished(points: List<Vec>) {
         val current = session ?: return
         if (current.complete || current.cleared) return
-        val item = current.items.getOrNull(current.itemIndex) ?: return
+        val step = current.queue.firstOrNull() ?: return
+        val item = current.items[step.itemId] ?: return
         val glyph = glyphs[item.glyphs.getOrNull(current.glyphIndex).orEmpty()]
         if (glyph == null || current.strokeIndex !in glyph.indices) {
             notice = WritingNotice.MissingGlyph
@@ -263,7 +293,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         when (val verdict = StrokeMatcher.evaluate(points, glyph[current.strokeIndex], WritingProgress.toleranceOf(progress))) {
             StrokeVerdict.Accepted -> acceptStroke(current, glyph)
             StrokeVerdict.TooShort -> rejectStroke(current, verdict, countMistake = false)
-            else -> rejectStroke(current, verdict, countMistake = true)
+            else -> rejectStroke(current, verdict, countMistake = step.phase == PracticePhase.Recall)
         }
     }
 
@@ -307,8 +337,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             emit()
             return
         }
-        val item = current.items[current.itemIndex]
-        val now = System.currentTimeMillis()
+        val step = current.queue.first()
+        val item = current.items.getValue(step.itemId)
         if (current.glyphIndex < item.glyphs.lastIndex) {
             session = current.copy(
                 glyphIndex = current.glyphIndex + 1,
@@ -319,53 +349,103 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             emit()
             return
         }
-        progress = WritingProgress.withSuccess(progress, item.id, now)
-        progress = WritingProgress.withScheduled(progress, item.id, current.mistakesOnItem, now)
-        val lastItem = current.itemIndex == current.items.lastIndex
-        if (lastItem && current.mode == PracticeMode.Lesson && current.lessonId != null) {
-            progress = WritingProgress.withLessonLearned(progress, current.lessonId)
+        finishAttempt(current)
+    }
+
+    private fun finishAttempt(current: Session) {
+        val step = current.queue.first()
+        val item = current.items.getValue(step.itemId)
+        val now = System.currentTimeMillis()
+        var mastered = current.mastered
+        val nextQueue = when (step.phase) {
+            PracticePhase.Teach, PracticePhase.Fade, PracticePhase.Repair ->
+                RecallFlow.afterGuided(current.queue)
+            PracticePhase.Recall -> {
+                if (current.aided) {
+                    RecallFlow.afterAidedRecall(current.queue)
+                } else {
+                    val required = if (current.mode == PracticeMode.Lesson && !current.beginner) {
+                        RecallFlow.UNAIDED_TO_LEARN
+                    } else {
+                        1
+                    }
+                    val outcome = RecallFlow.afterUnaidedRecall(current.queue, required)
+                    if (outcome.mastered) {
+                        mastered = mastered + item.id
+                        progress = WritingProgress.withSuccess(progress, item.id, now)
+                        progress = WritingProgress.withScheduled(progress, item.id, current.mistakesOnItem, now)
+                        persist()
+                    }
+                    outcome.queue
+                }
+            }
         }
-        persist()
-        if (!lastItem) {
-            session = current.copy(cleared = true, hint = false, error = null)
+        val lessonDone = nextQueue.isEmpty() && current.mode == PracticeMode.Lesson &&
+            (current.beginner || RecallFlow.lessonMemorized(current.itemOrder, mastered))
+        if (lessonDone && current.lessonId != null) {
+            if (current.beginner) {
+                current.itemOrder.forEach { id ->
+                    progress = WritingProgress.withScheduled(progress, id, mistakes = 0, now)
+                }
+            }
+            progress = WritingProgress.withLessonLearned(progress, current.lessonId)
+            persist()
+        }
+        if (nextQueue.isNotEmpty()) {
+            session = current.copy(
+                cleared = true,
+                hint = false,
+                error = null,
+                pendingQueue = nextQueue,
+                mastered = mastered,
+            )
             emit()
             transientJob = viewModelScope.launch {
                 delay(CLEAR_DELAY_MS)
                 val latest = session ?: return@launch
+                val pending = latest.pendingQueue ?: return@launch
                 if (!latest.cleared) return@launch
                 session = latest.copy(
-                    itemIndex = latest.itemIndex + 1,
+                    queue = pending,
+                    pendingQueue = null,
                     glyphIndex = 0,
                     strokeIndex = 0,
-                    mistakesOnItem = 0,
-                    cleared = false,
+                    aided = false,
                     hint = false,
                     error = null,
+                    cleared = false,
+                    showRepairNote = pending.first().phase == PracticePhase.Repair,
+                    completedAttempts = latest.completedAttempts + 1,
+                    mistakesOnItem = 0,
                 )
                 emit()
             }
             return
         }
         val stage = current.stageId?.let { course.stage(it) }
-        val unlockedNext = if (current.mode == PracticeMode.Lesson && current.lessonId != null && stage != null) {
+        val unlockedNext = if (lessonDone && current.lessonId != null && stage != null) {
             val index = stage.lessons.indexOfFirst { it.id == current.lessonId }
             index >= 0 && index < stage.lessons.lastIndex
         } else {
             false
         }
-        session = current.copy(complete = true, hint = false, error = null, unlockedNext = unlockedNext)
+        session = current.copy(
+            queue = emptyList(),
+            complete = true,
+            hint = false,
+            error = null,
+            unlockedNext = unlockedNext,
+            mastered = mastered,
+        )
         emit()
     }
 
     private fun rejectStroke(current: Session, verdict: StrokeVerdict, countMistake: Boolean) {
-        var mistakes = current.mistakesOnItem
         if (countMistake) {
-            val item = current.items[current.itemIndex]
-            mistakes += 1
-            progress = WritingProgress.withMistake(progress, item.id, System.currentTimeMillis())
-            persist()
+            enterRepair(current)
+            return
         }
-        session = current.copy(error = verdict, mistakesOnItem = mistakes)
+        session = current.copy(error = verdict)
         emit()
         transientJob?.cancel()
         transientJob = viewModelScope.launch {
@@ -375,6 +455,34 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             session = latest.copy(error = null)
             emit()
         }
+    }
+
+    private fun enterRepair(current: Session) {
+        val step = current.queue.firstOrNull() ?: return
+        val itemId = step.itemId
+        val now = System.currentTimeMillis()
+        if (!current.aided) {
+            progress = WritingProgress.withMistake(progress, itemId, now)
+            progress = WritingProgress.withLapse(progress, itemId, now)
+            persist()
+        }
+        val queue = if (step.phase == PracticePhase.Recall) {
+            RecallFlow.afterMiss(current.queue)
+        } else {
+            current.queue
+        }
+        session = current.copy(
+            queue = queue,
+            glyphIndex = 0,
+            strokeIndex = 0,
+            aided = false,
+            hint = false,
+            error = null,
+            showRepairNote = true,
+            mistakesOnItem = current.mistakesOnItem + 1,
+            cleared = false,
+        )
+        emit()
     }
 
     private fun beginSession(
@@ -390,7 +498,22 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             emit()
             return
         }
-        session = Session(stageId = stageId, lessonId = lessonId, mode = mode, items = playable)
+        val ids = playable.map { it.id }
+        val beginner = progress.beginnerMode && mode == PracticeMode.Lesson
+        val queue = if (mode == PracticeMode.Lesson) {
+            RecallFlow.lessonSteps(ids, beginner = beginner)
+        } else {
+            RecallFlow.reviewSteps(ids)
+        }
+        session = Session(
+            stageId = stageId,
+            lessonId = lessonId,
+            mode = mode,
+            items = playable.associateBy { it.id },
+            itemOrder = ids,
+            queue = queue,
+            beginner = beginner,
+        )
         screen = WritingScreenKind.Practice
         showIntro = mode == PracticeMode.Lesson && progress.writingLessonsEnabled && !progress.introSeen
         emit()
@@ -444,31 +567,77 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             practice = active?.let { sessionToState(it) },
             introStrokes = glyphs["あ"].orEmpty(),
             uiLanguage = language,
+            beginnerMode = progress.beginnerMode,
         )
     }
 
     private fun sessionToState(current: Session): PracticeState? {
-        val item = current.items.getOrNull(current.itemIndex) ?: return null
+        val step = current.queue.firstOrNull()
+        val item = step?.let { current.items[it.itemId] }
+        if (step == null || item == null) {
+            if (!current.complete) return null
+            val fallback = current.items.values.firstOrNull() ?: return null
+            return PracticeState(
+                mode = current.mode,
+                headline = fallback.headline(language),
+                subtitle = fallback.subtitle(language),
+                character = fallback.glyphs.first(),
+                strokes = glyphs[fallback.glyphs.first()].orEmpty(),
+                strokeIndex = 0,
+                glyphIndex = 0,
+                glyphCount = fallback.glyphs.size,
+                itemIndex = current.completedAttempts,
+                itemCount = current.completedAttempts.coerceAtLeast(1),
+                phase = PracticePhase.Recall,
+                guideStyle = GuideStyle.None,
+                showHint = false,
+                error = null,
+                justCleared = false,
+                sessionComplete = true,
+                unlockedNext = current.unlockedNext,
+            )
+        }
         val character = item.glyphs.getOrNull(current.glyphIndex) ?: return null
         val glyph = glyphs[character].orEmpty()
+        val (headline, subtitle) = prompts(item, step.phase)
+        val remaining = current.queue.size
         return PracticeState(
             mode = current.mode,
-            headline = item.headline(language),
-            subtitle = item.subtitle(language),
+            headline = headline,
+            subtitle = subtitle,
             character = character,
             strokes = glyph,
             strokeIndex = current.strokeIndex.coerceIn(0, (glyph.size - 1).coerceAtLeast(0)),
             glyphIndex = current.glyphIndex,
             glyphCount = item.glyphs.size,
-            itemIndex = current.itemIndex,
-            itemCount = current.items.size,
-            showGuide = progress.writingLessonsEnabled,
-            showHint = current.hint && progress.writingLessonsEnabled,
+            itemIndex = current.completedAttempts,
+            itemCount = current.completedAttempts + remaining,
+            phase = step.phase,
+            guideStyle = RecallFlow.guideStyle(step.phase),
+            showHint = current.hint && step.phase != PracticePhase.Teach,
             error = current.error,
             justCleared = current.cleared,
             sessionComplete = current.complete,
             unlockedNext = current.unlockedNext,
+            autoPlay = progress.writingLessonsEnabled &&
+                (step.phase == PracticePhase.Teach || step.phase == PracticePhase.Repair) &&
+                current.strokeIndex == 0 &&
+                !current.cleared,
+            showRepairNote = current.showRepairNote && step.phase == PracticePhase.Repair,
         )
+    }
+
+    private fun prompts(item: CourseItem, phase: PracticePhase): Pair<String, String> {
+        if (RecallFlow.revealsAnswer(phase)) {
+            return item.text to item.subtitle(language)
+        }
+        val meaning = item.meaning(language)
+        val reading = item.spokenReading()
+        return if (meaning == item.text || meaning.isBlank()) {
+            reading to ""
+        } else {
+            meaning to reading
+        }
     }
 
     private fun currentStage(): CourseStage? = openStageId?.let { course.stage(it) }
@@ -490,16 +659,23 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         val stageId: String?,
         val lessonId: String?,
         val mode: PracticeMode,
-        val items: List<CourseItem>,
-        val itemIndex: Int = 0,
+        val items: Map<String, CourseItem>,
+        val itemOrder: List<String>,
+        val queue: List<RecallStep>,
         val glyphIndex: Int = 0,
         val strokeIndex: Int = 0,
         val mistakesOnItem: Int = 0,
+        val aided: Boolean = false,
         val hint: Boolean = false,
         val error: StrokeVerdict? = null,
         val cleared: Boolean = false,
         val complete: Boolean = false,
         val unlockedNext: Boolean = false,
+        val beginner: Boolean = false,
+        val mastered: Set<String> = emptySet(),
+        val pendingQueue: List<RecallStep>? = null,
+        val showRepairNote: Boolean = false,
+        val completedAttempts: Int = 0,
     )
 
     private companion object {

@@ -183,6 +183,60 @@ class WritingCourseTest {
     }
 
     @Test
+    fun lessonMovesFromTeachToFadeToShuffledRecall() {
+        val ids = listOf("a", "i", "u", "e", "o")
+        val steps = RecallFlow.lessonSteps(ids, beginner = false) { it.reversed() }
+        assertEquals(PracticePhase.Teach, steps[0].phase)
+        assertEquals("a", steps[0].itemId)
+        assertEquals(PracticePhase.Teach, steps[1].phase)
+        assertEquals(PracticePhase.Fade, steps[2].phase)
+        assertEquals(GuideStyle.Full, RecallFlow.guideStyle(PracticePhase.Teach))
+        assertEquals(GuideStyle.Faint, RecallFlow.guideStyle(PracticePhase.Fade))
+        assertEquals(GuideStyle.None, RecallFlow.guideStyle(PracticePhase.Recall))
+        val recall = steps.filter { it.phase == PracticePhase.Recall }
+        assertEquals(listOf("o", "e", "u", "i", "a"), recall.map { it.itemId })
+        assertTrue(RecallFlow.lessonSteps(ids, beginner = true).none { it.phase == PracticePhase.Recall || it.phase == PracticePhase.Fade })
+        assertTrue(RecallFlow.reviewSteps(ids) { it }.all { it.phase == PracticePhase.Recall })
+    }
+
+    @Test
+    fun mistakeRequeuesAndLessonNeedsTwoUnaidedSuccesses() {
+        val ids = listOf("a", "i")
+        var queue = listOf(
+            RecallStep("a", PracticePhase.Recall),
+            RecallStep("i", PracticePhase.Recall),
+        )
+        val missed = RecallFlow.afterMiss(queue)
+        assertEquals(PracticePhase.Repair, missed.first().phase)
+        assertEquals("a", missed.first().itemId)
+        assertEquals(GuideStyle.Full, RecallFlow.guideStyle(missed.first().phase))
+        val afterRepair = RecallFlow.afterGuided(missed)
+        assertTrue(afterRepair.any { it.itemId == "a" && it.phase == PracticePhase.Recall && it.unaidedStreak == 0 })
+        assertNotEquals(afterRepair.first().itemId, "a")
+
+        queue = listOf(RecallStep("a", PracticePhase.Recall, unaidedStreak = 0), RecallStep("i", PracticePhase.Recall))
+        val once = RecallFlow.afterUnaidedRecall(queue, RecallFlow.UNAIDED_TO_LEARN)
+        assertFalse(once.mastered)
+        assertTrue(once.queue.any { it.itemId == "a" && it.unaidedStreak == 1 && it.phase == PracticePhase.Recall })
+        val secondQueue = listOf(RecallStep("a", PracticePhase.Recall, unaidedStreak = 1))
+        val twice = RecallFlow.afterUnaidedRecall(secondQueue, RecallFlow.UNAIDED_TO_LEARN)
+        assertTrue(twice.mastered)
+        assertTrue(twice.queue.isEmpty())
+        assertFalse(RecallFlow.lessonMemorized(ids, setOf("a")))
+        assertTrue(RecallFlow.lessonMemorized(ids, setOf("a", "i")))
+
+        val aided = RecallFlow.afterAidedRecall(listOf(RecallStep("a", PracticePhase.Recall, unaidedStreak = 1)))
+        assertEquals(0, aided.first().unaidedStreak)
+        assertEquals(PracticePhase.Recall, aided.first().phase)
+
+        val lapsed = WritingProgress.lapse(SrsCard(intervalDays = 6, reps = 4, ease = 2.5f), now = 5_000L)
+        assertEquals(0, lapsed.reps)
+        assertEquals(0, lapsed.intervalDays)
+        assertEquals(5_000L + WritingProgress.SHORT_INTERVAL_MS, lapsed.dueAt)
+        assertTrue(lapsed.dueAt - 5_000L < WritingProgress.DAY_MS)
+    }
+
+    @Test
     fun progressJsonRoundTripsWithToleranceAndUnlockFlags() {
         val original = PersistedProgress(
             learnedLessonIds = listOf("hira-basic-1"),

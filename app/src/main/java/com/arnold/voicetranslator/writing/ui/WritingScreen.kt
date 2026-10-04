@@ -73,6 +73,8 @@ data class WritingActions(
     val onDismissIntro: () -> Unit,
     val onStroke: (List<com.arnold.voicetranslator.writing.Vec>) -> Unit,
     val onHint: () -> Unit,
+    val onGiveUp: () -> Unit,
+    val onBeginnerMode: (Boolean) -> Unit,
     val onClosePractice: () -> Unit,
     val onDismissNotice: () -> Unit,
 )
@@ -107,9 +109,11 @@ fun WritingScreen(
             onOpenSettings = viewModel::openSettings,
             onCloseSettings = viewModel::closeSettings,
             onToggleLessons = viewModel::setWritingLessonsEnabled,
+            onBeginnerMode = viewModel::setBeginnerMode,
             onDismissIntro = viewModel::dismissIntro,
             onStroke = viewModel::onStrokeFinished,
             onHint = viewModel::showHint,
+            onGiveUp = viewModel::giveUp,
             onClosePractice = viewModel::closePractice,
             onDismissNotice = viewModel::dismissNotice,
         ),
@@ -153,6 +157,7 @@ internal fun WritingCourse(
                     onSettings = actions.onOpenSettings,
                     onStroke = actions.onStroke,
                     onHint = actions.onHint,
+                    onGiveUp = actions.onGiveUp,
                     onContinue = actions.onClosePractice,
                 )
             }
@@ -173,6 +178,7 @@ internal fun WritingCourse(
                 uiLanguage = uiLanguage,
                 onClose = actions.onCloseSettings,
                 onToggleLessons = actions.onToggleLessons,
+                onBeginnerMode = actions.onBeginnerMode,
                 onTolerance = actions.onTolerance,
                 onRestore = actions.onRestore,
                 onDebugUnlock = actions.onDebugUnlock,
@@ -598,6 +604,7 @@ internal fun SettingsPage(
     uiLanguage: UiLanguage,
     onClose: () -> Unit,
     onToggleLessons: (Boolean) -> Unit,
+    onBeginnerMode: (Boolean) -> Unit,
     onTolerance: (StrokeTolerance) -> Unit,
     onRestore: () -> Unit,
     onDebugUnlock: (Boolean) -> Unit,
@@ -646,6 +653,21 @@ internal fun SettingsPage(
             }
         }
         Spacer(Modifier.height(22.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = localized(uiLanguage, R.string.writing_beginner), color = WritingPalette.onSurface, fontWeight = FontWeight.Medium)
+                Text(
+                    text = localized(uiLanguage, R.string.writing_beginner_desc),
+                    color = WritingPalette.muted,
+                    fontSize = 13.sp,
+                )
+            }
+            androidx.compose.material3.Switch(
+                checked = state.beginnerMode,
+                onCheckedChange = onBeginnerMode,
+            )
+        }
+        Spacer(Modifier.height(18.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = localized(uiLanguage, R.string.writing_lessons_toggle), color = WritingPalette.onSurface, fontWeight = FontWeight.Medium)

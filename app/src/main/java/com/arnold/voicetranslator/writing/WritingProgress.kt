@@ -50,6 +50,11 @@ data class PersistedProgress(
      * even if it is present in an old file.
      */
     val debugUnlock: Boolean = false,
+    /**
+     * Guided lessons for someone just starting. Recall stays the default.
+     * Reviews ignore this and stay blank-canvas.
+     */
+    val beginnerMode: Boolean = false,
 )
 
 /**
@@ -165,6 +170,20 @@ object WritingProgress {
         return progress.copy(srs = progress.srs + (itemId to card))
     }
 
+    /** A failed recall comes back soon instead of on the old interval. */
+    fun lapse(card: SrsCard, now: Long): SrsCard = card.copy(
+        ease = (card.ease - 0.2f).coerceAtLeast(1.3f),
+        intervalDays = 0,
+        reps = 0,
+        lapses = card.lapses + 1,
+        dueAt = now + SHORT_INTERVAL_MS,
+    )
+
+    fun withLapse(progress: PersistedProgress, itemId: String, now: Long): PersistedProgress {
+        val card = lapse(progress.srs[itemId] ?: SrsCard(), now)
+        return progress.copy(srs = progress.srs + (itemId to card))
+    }
+
     fun withLessonLearned(progress: PersistedProgress, lessonId: String): PersistedProgress {
         if (lessonId in progress.learnedLessonIds) return progress
         return progress.copy(learnedLessonIds = progress.learnedLessonIds + lessonId)
@@ -180,6 +199,7 @@ object WritingProgress {
     const val DUE_LIMIT = 12
     const val REINFORCE_LIMIT = 8
     const val DAY_MS = 86_400_000L
+    const val SHORT_INTERVAL_MS = 10 * 60 * 1000L
 }
 
 object ProgressCodec {

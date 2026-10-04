@@ -151,6 +151,15 @@
     <string name="writing_available">Open</string>
     <string name="writing_glyph_progress">Sign %1$d of %2$d</string>
     <string name="writing_teach_stroke">Show the stroke</string>
+    <string name="writing_hint_recall">Hint</string>
+    <string name="writing_give_up">I don\'t remember</string>
+    <string name="writing_phase_teach">Learn the stroke</string>
+    <string name="writing_phase_fade">Less help</string>
+    <string name="writing_phase_recall">From memory</string>
+    <string name="writing_phase_repair">Here is how it is written</string>
+    <string name="writing_repair_note">Trace it once with the guide. It comes back in a few steps.</string>
+    <string name="writing_beginner">Beginner mode</string>
+    <string name="writing_beginner_desc">Keeps the guide on during the lesson. Today\'s review is still from memory.</string>
     <string name="writing_watch_order">Watch the order</string>
     <string name="writing_intro_title">How tracing works</string>
     <string name="writing_intro_each">New characters come with a tracing guide.</string>

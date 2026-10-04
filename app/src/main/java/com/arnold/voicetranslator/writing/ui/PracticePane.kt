@@ -60,7 +60,9 @@ import androidx.compose.ui.unit.sp
 import com.arnold.voicetranslator.R
 import com.arnold.voicetranslator.ui.localization.UiLanguage
 import com.arnold.voicetranslator.ui.localization.localized
+import com.arnold.voicetranslator.writing.GuideStyle
 import com.arnold.voicetranslator.writing.PracticeMode
+import com.arnold.voicetranslator.writing.PracticePhase
 import com.arnold.voicetranslator.writing.PracticeState
 import com.arnold.voicetranslator.writing.StrokeMatcher
 import com.arnold.voicetranslator.writing.StrokeVerdict
@@ -75,6 +77,7 @@ internal fun WritingPracticePage(
     onSettings: () -> Unit,
     onStroke: (List<Vec>) -> Unit,
     onHint: () -> Unit,
+    onGiveUp: () -> Unit,
     onContinue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -86,8 +89,8 @@ internal fun WritingPracticePage(
             state.glyphCount.coerceAtLeast(1)
         (state.itemIndex + glyphFraction) / state.itemCount.coerceAtLeast(1)
     }
-    val characterKey = Triple(state.character, state.itemIndex, state.glyphIndex)
-    var playToken by remember(characterKey) { mutableIntStateOf(0) }
+    val characterKey = listOf(state.character, state.itemIndex, state.glyphIndex, state.phase)
+    var playToken by remember(characterKey) { mutableIntStateOf(if (state.autoPlay) 1 else 0) }
     var playProgress by remember(characterKey) { mutableFloatStateOf(-1f) }
     LaunchedEffect(playToken, characterKey) {
         if (playToken == 0) {
@@ -120,6 +123,21 @@ internal fun WritingPracticePage(
             onSettings = onSettings,
         )
         Text(
+            text = state.phase.label(uiLanguage),
+            color = WritingPalette.primary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 10.dp, start = 8.dp),
+        )
+        if (state.showRepairNote) {
+            Text(
+                text = localized(uiLanguage, R.string.writing_repair_note),
+                color = WritingPalette.endDot,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp),
+            )
+        }
+        Text(
             text = state.headline,
             color = WritingPalette.onSurface,
             fontSize = if (state.headline.length <= 4) 48.sp else 28.sp,
@@ -138,7 +156,7 @@ internal fun WritingPracticePage(
                 .fillMaxWidth()
                 .padding(top = 2.dp, bottom = 4.dp),
         )
-        if (state.glyphCount > 1) {
+        if (state.glyphCount > 1 && state.phase != PracticePhase.Recall) {
             Text(
                 text = localized(uiLanguage, R.string.writing_glyph_progress, state.glyphIndex + 1, state.glyphCount),
                 color = WritingPalette.muted,
@@ -158,7 +176,7 @@ internal fun WritingPracticePage(
                 KanaDrawingCanvas(
                     strokes = state.strokes,
                     strokeIndex = state.strokeIndex,
-                    showGuide = state.showGuide,
+                    guideStyle = state.guideStyle,
                     showHint = state.showHint,
                     error = state.error != null,
                     enabled = !state.justCleared && !state.sessionComplete && playProgress < 0f,
@@ -199,21 +217,23 @@ internal fun WritingPracticePage(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Button(
-                onClick = { playToken += 1 },
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = WritingPalette.surfaceVariant,
-                    contentColor = WritingPalette.onSurface,
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-            ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.size(6.dp))
-                Text(text = localized(uiLanguage, R.string.writing_watch_order), fontSize = 14.sp)
+            if (state.phase != PracticePhase.Recall) {
+                Button(
+                    onClick = { playToken += 1 },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = WritingPalette.surfaceVariant,
+                        contentColor = WritingPalette.onSurface,
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(text = localized(uiLanguage, R.string.writing_watch_order), fontSize = 14.sp)
+                }
             }
-            if (state.showGuide) {
+            if (state.phase == PracticePhase.Fade || state.phase == PracticePhase.Recall) {
                 Button(
                     onClick = onHint,
                     modifier = Modifier.weight(1f).height(48.dp),
@@ -225,10 +245,27 @@ internal fun WritingPracticePage(
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                 ) {
                     Text(
-                        text = localized(uiLanguage, R.string.writing_teach_stroke),
+                        text = localized(
+                            uiLanguage,
+                            if (state.phase == PracticePhase.Recall) R.string.writing_hint_recall else R.string.writing_teach_stroke,
+                        ),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
+                }
+            }
+            if (state.phase == PracticePhase.Recall) {
+                Button(
+                    onClick = onGiveUp,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = WritingPalette.surfaceVariant,
+                        contentColor = WritingPalette.onSurface,
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                ) {
+                    Text(text = localized(uiLanguage, R.string.writing_give_up), fontSize = 14.sp)
                 }
             }
         }
@@ -298,7 +335,7 @@ private fun PracticeTopBar(
 private fun KanaDrawingCanvas(
     strokes: List<List<Vec>>,
     strokeIndex: Int,
-    showGuide: Boolean,
+    guideStyle: GuideStyle,
     showHint: Boolean,
     error: Boolean,
     enabled: Boolean,
@@ -345,9 +382,13 @@ private fun KanaDrawingCanvas(
             },
     ) {
         val strokeWidth = size.minDimension * 0.07f
-        if (showGuide) {
+        if (guideStyle == GuideStyle.Full) {
             strokes.forEach { stroke ->
                 drawKanaStroke(stroke, WritingPalette.guide, strokeWidth, size)
+            }
+        } else if (guideStyle == GuideStyle.Faint) {
+            strokes.forEach { stroke ->
+                drawKanaStroke(stroke, WritingPalette.guide.copy(alpha = 0.35f), strokeWidth * 0.55f, size)
             }
         }
         val done = strokeIndex.coerceIn(0, strokes.size)
@@ -377,19 +418,29 @@ private fun KanaDrawingCanvas(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
         }
-        if (showGuide && playProgress < 0f && strokeIndex in strokes.indices) {
+        if (guideStyle != GuideStyle.None && playProgress < 0f && strokeIndex in strokes.indices) {
             val stroke = strokes[strokeIndex]
             val start = kanaOffset(stroke.first(), size)
-            val closed = StrokeMatcher.dist(stroke.first(), stroke.last()) < 12f
-            val endPoint = if (closed) {
-                kanaOffset(StrokeMatcher.pointAt(stroke, 0.92f), size)
-            } else {
-                kanaOffset(stroke.last(), size)
-            }
             drawCircle(WritingPalette.startDot, radius = size.minDimension * 0.028f, center = start)
-            drawCircle(WritingPalette.endDot, radius = size.minDimension * 0.028f, center = endPoint)
+            if (guideStyle == GuideStyle.Full) {
+                val closed = StrokeMatcher.dist(stroke.first(), stroke.last()) < 12f
+                val endPoint = if (closed) {
+                    kanaOffset(StrokeMatcher.pointAt(stroke, 0.92f), size)
+                } else {
+                    kanaOffset(stroke.last(), size)
+                }
+                drawCircle(WritingPalette.endDot, radius = size.minDimension * 0.028f, center = endPoint)
+            }
         }
     }
+}
+
+@Composable
+private fun PracticePhase.label(uiLanguage: UiLanguage): String = when (this) {
+    PracticePhase.Teach -> localized(uiLanguage, R.string.writing_phase_teach)
+    PracticePhase.Fade -> localized(uiLanguage, R.string.writing_phase_fade)
+    PracticePhase.Recall -> localized(uiLanguage, R.string.writing_phase_recall)
+    PracticePhase.Repair -> localized(uiLanguage, R.string.writing_phase_repair)
 }
 
 @Composable
