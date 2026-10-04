@@ -38,6 +38,9 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // Install next to the Play Store release (same id, Google signature).
+            // namespace stays com.arnold.voicetranslator; only the install id changes.
+            applicationIdSuffix = ".debug"
         }
     }
     compileOptions {
