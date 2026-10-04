@@ -99,6 +99,23 @@ class WritingScreenshotTest {
     }
 
     @Test
+    fun compare() {
+        val model = glyphs.getValue("あ")
+        val ink = model.map { stroke -> stroke.map { Vec(it.x + 6f, it.y + 4f) } }
+        snap("compare") {
+            practiceSnap(
+                headline = "a",
+                subtitle = "",
+                character = "あ",
+                phase = PracticePhase.Recall,
+                guide = GuideStyle.None,
+                userInk = ink,
+                reference = true,
+            )
+        }
+    }
+
+    @Test
     fun mistake() {
         snap("mistake") {
             practiceSnap(
@@ -120,6 +137,8 @@ class WritingScreenshotTest {
         phase: PracticePhase,
         guide: GuideStyle,
         assist: RecallAssist = RecallAssist.None,
+        userInk: List<List<Vec>> = emptyList(),
+        reference: Boolean = false,
     ) {
         WritingCourse(
             state = WritingUiState(
@@ -145,6 +164,8 @@ class WritingScreenshotTest {
                     unlockedNext = false,
                     recallAssist = assist,
                     showAnswer = false,
+                    userStrokes = userInk,
+                    showReference = reference,
                 ),
             ),
             uiLanguage = UiLanguage.ES,

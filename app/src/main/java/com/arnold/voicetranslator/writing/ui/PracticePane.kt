@@ -176,10 +176,13 @@ internal fun WritingPracticePage(
                 val side = minOf(maxWidth, maxHeight)
                 KanaDrawingCanvas(
                     strokes = state.strokes,
+                    userStrokes = state.userStrokes,
                     strokeIndex = state.strokeIndex,
                     guideStyle = state.guideStyle,
                     recallAssist = state.recallAssist,
                     showAnswer = state.showAnswer,
+                    showReference = state.showReference,
+                    justCleared = state.justCleared,
                     showHint = state.showHint,
                     error = state.error != null,
                     enabled = !state.justCleared && !state.sessionComplete && playProgress < 0f,
@@ -192,7 +195,9 @@ internal fun WritingPracticePage(
             if (state.justCleared) {
                 Box(
                     modifier = Modifier
-                        .size(92.dp)
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .size(44.dp)
                         .background(WritingPalette.ok, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -200,7 +205,7 @@ internal fun WritingPracticePage(
                         imageVector = Icons.Filled.Check,
                         contentDescription = null,
                         tint = WritingPalette.onSurface,
-                        modifier = Modifier.size(52.dp),
+                        modifier = Modifier.size(26.dp),
                     )
                 }
             }
@@ -334,10 +339,13 @@ private fun PracticeTopBar(
 @Composable
 private fun KanaDrawingCanvas(
     strokes: List<List<Vec>>,
+    userStrokes: List<List<Vec>>,
     strokeIndex: Int,
     guideStyle: GuideStyle,
     recallAssist: RecallAssist,
     showAnswer: Boolean,
+    showReference: Boolean,
+    justCleared: Boolean,
     showHint: Boolean,
     error: Boolean,
     enabled: Boolean,
@@ -384,7 +392,11 @@ private fun KanaDrawingCanvas(
             },
     ) {
         val strokeWidth = size.minDimension * 0.07f
-        if (showAnswer || guideStyle == GuideStyle.Full) {
+        if (showReference) {
+            strokes.forEach { stroke ->
+                drawKanaStroke(stroke, WritingPalette.reference, strokeWidth * 0.92f, size)
+            }
+        } else if (guideStyle == GuideStyle.Full) {
             strokes.forEach { stroke ->
                 drawKanaStroke(stroke, WritingPalette.guide, strokeWidth, size)
             }
@@ -400,9 +412,8 @@ private fun KanaDrawingCanvas(
                 drawKanaStroke(stroke, WritingPalette.guide, strokeWidth, size)
             }
         }
-        val done = strokeIndex.coerceIn(0, strokes.size)
-        for (index in 0 until done) {
-            drawKanaStroke(strokes[index], WritingPalette.ink, strokeWidth, size)
+        userStrokes.forEach { stroke ->
+            drawKanaStroke(stroke, WritingPalette.ink, strokeWidth, size)
         }
         if (playProgress >= 0f) {
             val whole = playProgress.toInt().coerceIn(0, strokes.size)
@@ -427,7 +438,7 @@ private fun KanaDrawingCanvas(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
         }
-        val showStart = playProgress < 0f && strokeIndex in strokes.indices &&
+        val showStart = playProgress < 0f && !justCleared && strokeIndex in strokes.indices &&
             (showAnswer || guideStyle != GuideStyle.None || recallAssist == RecallAssist.Outline)
         if (showStart) {
             val stroke = strokes[strokeIndex]

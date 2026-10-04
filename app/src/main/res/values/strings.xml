@@ -170,7 +170,7 @@
     <string name="writing_lessons_toggle">Tracing guide</string>
     <string name="writing_lessons_toggle_desc">Shows stroke order, the start and end dots, and the model stroke.</string>
     <string name="writing_tolerance">Stroke tolerance</string>
-    <string name="writing_tolerance_desc">Relaxed accepts a wobble and a start that is only near the dot. Strict asks for a closer trace.</string>
+    <string name="writing_tolerance_desc">Relaxed allows a little wobble, but the shape, direction, and position still have to match. Strict asks for more precision.</string>
     <string name="writing_tolerance_relaxed">Relaxed</string>
     <string name="writing_tolerance_normal">Normal</string>
     <string name="writing_tolerance_strict">Strict</string>

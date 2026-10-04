@@ -71,6 +71,10 @@ data class PracticeState(
     val unlockedNext: Boolean,
     val recallAssist: RecallAssist = RecallAssist.None,
     val showAnswer: Boolean = false,
+    /** Strokes the learner actually drew, in view-box coordinates. Never snapped to the model. */
+    val userStrokes: List<List<Vec>> = emptyList(),
+    /** Grey KanjiVG reference drawn behind [userStrokes]. */
+    val showReference: Boolean = false,
 )
 
 data class WritingUiState(
@@ -294,7 +298,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         when (val verdict = StrokeMatcher.evaluate(points, glyph[current.strokeIndex], WritingProgress.toleranceOf(progress))) {
-            StrokeVerdict.Accepted -> acceptStroke(current, glyph)
+            StrokeVerdict.Accepted -> acceptStroke(current, glyph, points)
             StrokeVerdict.TooShort -> rejectStroke(current, verdict, countMistake = false)
             else -> rejectStroke(current, verdict, countMistake = step.phase == PracticePhase.Recall)
         }
@@ -333,32 +337,43 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun acceptStroke(current: Session, glyph: List<List<Vec>>) {
+    private fun acceptStroke(current: Session, glyph: List<List<Vec>>, points: List<Vec>) {
         transientJob?.cancel()
+        val drawn = current.copy(
+            userStrokes = current.userStrokes + listOf(points),
+            strokeMisses = 0,
+            hint = false,
+            error = null,
+        )
         if (current.strokeIndex < glyph.lastIndex) {
-            session = current.copy(
-                strokeIndex = current.strokeIndex + 1,
-                strokeMisses = 0,
-                hint = false,
-                error = null,
-            )
+            session = drawn.copy(strokeIndex = current.strokeIndex + 1)
             emit()
             return
         }
         val step = current.queue.first()
         val item = current.items.getValue(step.itemId)
         if (current.glyphIndex < item.glyphs.lastIndex) {
-            session = current.copy(
-                glyphIndex = current.glyphIndex + 1,
-                strokeIndex = 0,
-                strokeMisses = 0,
-                hint = false,
-                error = null,
-            )
+            session = drawn.copy(cleared = true, advanceGlyph = true)
             emit()
+            transientJob = viewModelScope.launch {
+                delay(CLEAR_DELAY_MS)
+                val latest = session ?: return@launch
+                if (!latest.cleared || !latest.advanceGlyph) return@launch
+                session = latest.copy(
+                    glyphIndex = latest.glyphIndex + 1,
+                    strokeIndex = 0,
+                    userStrokes = emptyList(),
+                    strokeMisses = 0,
+                    cleared = false,
+                    advanceGlyph = false,
+                    hint = false,
+                    error = null,
+                )
+                emit()
+            }
             return
         }
-        finishAttempt(current)
+        finishAttempt(drawn)
     }
 
     private fun finishAttempt(current: Session) {
@@ -424,6 +439,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                     aided = false,
                     revealedAnswer = false,
                     strokeMisses = 0,
+                    userStrokes = emptyList(),
+                    advanceGlyph = false,
                     completedAttempts = latest.completedAttempts + 1,
                     mistakesOnItem = 0,
                 )
@@ -593,6 +610,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                 unlockedNext = current.unlockedNext,
                 recallAssist = RecallAssist.None,
                 showAnswer = false,
+                userStrokes = emptyList(),
+                showReference = false,
             )
         }
         val character = item.glyphs.getOrNull(current.glyphIndex) ?: return null
@@ -623,6 +642,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                 RecallAssist.None
             },
             showAnswer = current.revealedAnswer && step.phase == PracticePhase.Recall,
+            userStrokes = current.userStrokes,
+            showReference = current.cleared || (current.revealedAnswer && step.phase == PracticePhase.Recall),
         )
     }
 
@@ -676,10 +697,12 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         val completedAttempts: Int = 0,
         val strokeMisses: Int = 0,
         val revealedAnswer: Boolean = false,
+        val userStrokes: List<List<Vec>> = emptyList(),
+        val advanceGlyph: Boolean = false,
     )
 
     private companion object {
-        const val CLEAR_DELAY_MS = 650L
+        const val CLEAR_DELAY_MS = 1600L
         const val ERROR_DELAY_MS = 900L
     }
 }

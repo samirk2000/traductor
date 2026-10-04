@@ -72,7 +72,7 @@ class WritingCourseTest {
     fun relaxedAcceptsAnOffsetStartThatStrictRejects() {
         val stroke = glyphs.getValue("あ").first()
         val shiftedStart = stroke.mapIndexed { index, point ->
-            if (index == 0) Vec(point.x + 16f, point.y + 8f) else point
+            if (index == 0) Vec(point.x + 8f, point.y + 4f) else point
         }
         assertEquals(
             StrokeVerdict.Accepted,
@@ -82,6 +82,27 @@ class WritingCourseTest {
             StrokeVerdict.Accepted,
             StrokeMatcher.evaluate(shiftedStart, stroke, StrokeTolerance.Strict),
         )
+    }
+
+    @Test
+    fun wrongDirectionShapeAndPositionAreRejectedAtTheDefaultTolerance() {
+        val strokes = glyphs.getValue("あ")
+        val tolerance = StrokeTolerance.Relaxed
+        assertEquals(
+            StrokeVerdict.WrongDirection,
+            StrokeMatcher.evaluate(strokes[0].asReversed(), strokes[0], tolerance),
+        )
+
+        val loop = strokes[2]
+        val straight = listOf(loop.first(), Vec((loop.first().x + loop.last().x) / 2f, (loop.first().y + loop.last().y) / 2f), loop.last())
+        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(straight, loop, tolerance))
+        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(strokes[0], strokes[1], tolerance))
+
+        val misplaced = strokes[1].map { Vec(it.x + 28f, it.y - 24f) }
+        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(misplaced, strokes[1], tolerance))
+
+        val corner = listOf(Vec(8f, 8f), Vec(28f, 12f), Vec(46f, 10f))
+        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(corner, strokes[1], tolerance))
     }
 
     @Test
@@ -183,19 +204,19 @@ class WritingCourseTest {
     }
 
     @Test
-    fun lessonMovesFromTeachToFadeToShuffledRecall() {
+    fun lessonTracesOnceThenShuffledRecall() {
         val ids = listOf("a", "i", "u", "e", "o")
         val steps = RecallFlow.lessonSteps(ids, beginner = false) { it.reversed() }
-        assertEquals(PracticePhase.Teach, steps[0].phase)
-        assertEquals("a", steps[0].itemId)
-        assertEquals(PracticePhase.Teach, steps[1].phase)
-        assertEquals(PracticePhase.Fade, steps[2].phase)
-        assertEquals(GuideStyle.Full, RecallFlow.guideStyle(PracticePhase.Teach))
-        assertEquals(GuideStyle.Faint, RecallFlow.guideStyle(PracticePhase.Fade))
-        assertEquals(GuideStyle.None, RecallFlow.guideStyle(PracticePhase.Recall))
-        val recall = steps.filter { it.phase == PracticePhase.Recall }
+        assertEquals(ids.map { RecallStep(it, PracticePhase.Teach) }, steps.take(ids.size))
+        val recall = steps.drop(ids.size)
         assertEquals(listOf("o", "e", "u", "i", "a"), recall.map { it.itemId })
-        assertTrue(RecallFlow.lessonSteps(ids, beginner = true).none { it.phase == PracticePhase.Recall || it.phase == PracticePhase.Fade })
+        assertTrue(recall.all { it.phase == PracticePhase.Recall })
+        assertTrue(steps.none { it.phase == PracticePhase.Fade })
+        assertEquals(GuideStyle.Full, RecallFlow.guideStyle(PracticePhase.Teach))
+        assertEquals(GuideStyle.None, RecallFlow.guideStyle(PracticePhase.Recall))
+        val beginner = RecallFlow.lessonSteps(ids, beginner = true)
+        assertEquals(ids.size, beginner.size)
+        assertTrue(beginner.all { it.phase == PracticePhase.Teach })
         assertTrue(RecallFlow.reviewSteps(ids) { it }.all { it.phase == PracticePhase.Recall })
     }
 

@@ -40,15 +40,15 @@ data class RecallOutcome(
 )
 
 /**
- * Lesson order: each new item is traced with the guide, then with a faint outline,
- * then recalled from memory in a shuffled mix. A recall that needed a hint comes
- * back a few steps later. A lesson is memorized only after [UNAIDED_TO_LEARN]
- * unaided recalls in a row.
+ * Lesson order: each new item is traced once with the full guide, then recalled
+ * from memory in a shuffled mix. A recall that needed a hint comes back a few
+ * steps later. A lesson is memorized only after [UNAIDED_TO_LEARN] unaided
+ * recalls in a row, which adds one later recall and no more.
  */
 object RecallFlow {
 
-    const val TEACH_PASSES = 2
-    const val FADE_PASSES = 1
+    const val TEACH_PASSES = 1
+    const val FADE_PASSES = 0
     const val UNAIDED_TO_LEARN = 2
     const val REQUEUE_GAP = 2
 
@@ -80,12 +80,9 @@ object RecallFlow {
         shuffle: (List<String>) -> List<String> = { it.shuffled() },
     ): List<RecallStep> {
         if (beginner) {
-            return itemIds.flatMap { id -> List(TEACH_PASSES) { RecallStep(id, PracticePhase.Teach) } }
+            return itemIds.map { id -> RecallStep(id, PracticePhase.Teach) }
         }
-        val guided = itemIds.flatMap { id ->
-            List(TEACH_PASSES) { RecallStep(id, PracticePhase.Teach) } +
-                List(FADE_PASSES) { RecallStep(id, PracticePhase.Fade) }
-        }
+        val guided = itemIds.map { id -> RecallStep(id, PracticePhase.Teach) }
         val recall = shuffle(itemIds).map { RecallStep(it, PracticePhase.Recall) }
         return guided + recall
     }

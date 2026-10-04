@@ -27,6 +27,7 @@ internal object WritingPalette {
     val muted = Color(0xFFA4A9B3)
     val ink = Color(0xFFE8EEF6)
     val guide = Color(0xFF5C6573)
+    val reference = Color(0xFFB7BEC8)
     val startDot = Color(0xFF7EE0DE)
     val endDot = Color(0xFFFF8A7A)
     val canvas = Color(0xFF171A21)

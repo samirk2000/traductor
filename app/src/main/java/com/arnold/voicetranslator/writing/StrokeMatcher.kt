@@ -14,8 +14,8 @@ enum class StrokeVerdict {
 
 /**
  * How far a stroke may drift from the KanjiVG centerline.
- * [Relaxed] is the default: direction, order and the rough shape still have to
- * be right, but the start does not have to sit on the guide dot.
+ * [Relaxed] is the default. A little wobble still passes. Direction, shape,
+ * and where the stroke sits in the cell have to match.
  */
 enum class StrokeTolerance {
     Relaxed,
@@ -60,19 +60,25 @@ object StrokeMatcher {
         val end = dist(userSamples.last(), expectedSamples.last())
         val reverseStart = dist(userSamples.first(), expectedSamples.last())
         val reverseEnd = dist(userSamples.last(), expectedSamples.first())
-        if (!short && reverseStart + reverseEnd + limits.directionBias < start + end) {
+        if (reverseStart + reverseEnd + limits.directionBias < start + end) {
             return StrokeVerdict.WrongDirection
         }
 
         if (start > limits.start || end > limits.end) return StrokeVerdict.WrongShape
 
-        val mean = (0 until samples).sumOf { i ->
-            dist(userSamples[i], expectedSamples[i]).toDouble()
-        }.toFloat() / samples
-        if (mean > limits.mean) return StrokeVerdict.WrongShape
+        var mean = 0f
+        var frechet = 0f
+        for (i in 0 until samples) {
+            val delta = dist(userSamples[i], expectedSamples[i])
+            mean += delta
+            if (delta > frechet) frechet = delta
+        }
+        mean /= samples
+        if (mean > limits.mean || frechet > limits.frechet) return StrokeVerdict.WrongShape
 
         val cover = expectedSamples.maxOf { minDistanceToPolyline(it, user) }
         if (cover > limits.cover) return StrokeVerdict.WrongShape
+        if (!withinProportion(user, expected, limits)) return StrokeVerdict.WrongShape
         return StrokeVerdict.Accepted
     }
 
@@ -81,26 +87,31 @@ object StrokeMatcher {
         val start: Float,
         val end: Float,
         val mean: Float,
+        val frechet: Float,
         val cover: Float,
         val directionBias: Float,
+        val center: Float,
+        val minSpan: Float,
+        val maxSpan: Float,
+        val spanSlack: Float,
     )
 
     private fun limits(short: Boolean, tolerance: StrokeTolerance): Limits = when (tolerance) {
         StrokeTolerance.Relaxed -> if (short) {
             // Short marks (dakuten ticks) stay tight so neighbours are not interchangeable.
-            Limits(0.18f, 7.2f, 7.2f, 6.6f, 8f, 18f)
+            Limits(0.30f, 6.0f, 6.0f, 4.8f, 8.0f, 6.0f, 5f, 5.2f, 0.50f, 1.70f, 4.5f)
         } else {
-            Limits(0.28f, 32f, 36f, 26f, 30f, 22f)
+            Limits(0.50f, 16f, 18f, 11f, 20f, 14f, 6f, 13f, 0.68f, 1.45f, 14f)
         }
         StrokeTolerance.Normal -> if (short) {
-            Limits(0.25f, 8f, 8f, 7f, 9f, 12f)
+            Limits(0.38f, 5.0f, 5.0f, 4.0f, 6.5f, 5.0f, 4f, 4.2f, 0.58f, 1.50f, 3.5f)
         } else {
-            Limits(0.40f, 22f, 26f, 18f, 22f, 14f)
+            Limits(0.58f, 12f, 13f, 8f, 15f, 11f, 5f, 9f, 0.75f, 1.32f, 10f)
         }
         StrokeTolerance.Strict -> if (short) {
-            Limits(0.35f, 6f, 6f, 5.2f, 6.5f, 8f)
+            Limits(0.48f, 3.6f, 3.6f, 3.0f, 5.0f, 3.8f, 3f, 3.2f, 0.68f, 1.35f, 2.4f)
         } else {
-            Limits(0.55f, 12f, 14f, 10f, 12f, 8f)
+            Limits(0.68f, 8f, 9f, 6f, 11f, 8f, 4f, 6.5f, 0.82f, 1.20f, 6f)
         }
     }
 
@@ -112,9 +123,9 @@ object StrokeMatcher {
         tolerance: StrokeTolerance,
     ): StrokeVerdict {
         val (minRatio, maxRatio, center, coverLimit) = when (tolerance) {
-            StrokeTolerance.Relaxed -> ClosedLimits(0.40f, 3.0f, 18f, 18f)
-            StrokeTolerance.Normal -> ClosedLimits(0.50f, 2.6f, 14f, 14f)
-            StrokeTolerance.Strict -> ClosedLimits(0.60f, 2.2f, 10f, 10f)
+            StrokeTolerance.Relaxed -> ClosedLimits(0.55f, 2.2f, 12f, 12f)
+            StrokeTolerance.Normal -> ClosedLimits(0.62f, 1.9f, 9f, 9f)
+            StrokeTolerance.Strict -> ClosedLimits(0.72f, 1.65f, 6.5f, 6.5f)
         }
         if (userLength < expectedLength * minRatio) return StrokeVerdict.TooShort
         if (userLength > expectedLength * maxRatio) return StrokeVerdict.WrongShape
@@ -207,6 +218,38 @@ object StrokeMatcher {
         if (denom == 0f) return dist(point, a)
         val t = (((point.x - a.x) * dx + (point.y - a.y) * dy) / denom).coerceIn(0f, 1f)
         return dist(point, Vec(a.x + t * dx, a.y + t * dy))
+    }
+
+    private data class Bounds(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float) {
+        val width: Float get() = maxX - minX
+        val height: Float get() = maxY - minY
+        val center: Vec get() = Vec((minX + maxX) / 2f, (minY + maxY) / 2f)
+    }
+
+    /** The stroke has to occupy about the same part of the 109×109 cell. */
+    private fun withinProportion(user: List<Vec>, expected: List<Vec>, limits: Limits): Boolean {
+        val userBox = bounds(user)
+        val expectedBox = bounds(expected)
+        val expectedSpan = maxOf(expectedBox.width, expectedBox.height).coerceAtLeast(1f)
+        val userSpan = maxOf(userBox.width, userBox.height)
+        val allowedShrink = maxOf(expectedSpan * (1f - limits.minSpan), limits.spanSlack)
+        val allowedGrow = maxOf(expectedSpan * (limits.maxSpan - 1f), limits.spanSlack)
+        if (expectedSpan - userSpan > allowedShrink || userSpan - expectedSpan > allowedGrow) return false
+        return dist(userBox.center, expectedBox.center) <= limits.center
+    }
+
+    private fun bounds(points: List<Vec>): Bounds {
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (point in points) {
+            if (point.x < minX) minX = point.x
+            if (point.y < minY) minY = point.y
+            if (point.x > maxX) maxX = point.x
+            if (point.y > maxY) maxY = point.y
+        }
+        return Bounds(minX, minY, maxX, maxY)
     }
 
     private fun centroid(points: List<Vec>): Vec {
