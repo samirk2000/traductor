@@ -1,7 +1,7 @@
 package com.arnold.voicetranslator.writing
 
-import com.arnold.voicetranslator.util.KanaRomaji
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,65 +11,89 @@ import kotlin.random.Random
 class WritingCourseTest {
 
     private val glyphs: Map<String, List<List<Vec>>> by lazy {
-        StrokeRepository.parse(strokesFile().readText())
+        StrokeRepository.parse(asset("strokes.json").readText())
+    }
+
+    private val course: Course by lazy {
+        CourseCatalog.parse(asset("curriculum.json").readText())
     }
 
     @Test
-    fun catalogCoversBasicDakutenAndHandakutenInBothScripts() {
-        assertEquals(3, KanaCatalog.levels.size)
-        assertEquals(15, KanaCatalog.levels[0].lessons.size)
-        assertEquals(15, KanaCatalog.levels[1].lessons.size)
-        assertEquals(listOf("あいうえお", "かきくけこ", "がぎぐげご"), KanaCatalog.rows.take(3))
-        val hiragana = KanaCatalog.level("hiragana").lessons.flatMap { it.characters }
-        val katakana = KanaCatalog.level("katakana").lessons.flatMap { it.characters }
-        assertEquals(71, hiragana.size)
-        assertEquals(71, katakana.size)
-        assertTrue(hiragana.containsAll(listOf("が", "ぱ", "ん", "ぢ")))
-        assertTrue(katakana.containsAll(listOf("ガ", "パ", "ン", "ヂ")))
-        val mixed = KanaCatalog.level("mixed").lessons.first()
-        assertEquals(listOf("あ", "ア", "い", "イ", "う", "ウ", "え", "エ", "お", "オ"), mixed.characters)
+    fun curriculumKeepsBasicKanaFreeAndLaterStagesPaid() {
+        val free = course.stages.filter { !it.premium }
+        assertEquals(listOf("hira-basic", "kata-basic"), free.map { it.id })
+        assertTrue(course.stages.any { it.id == "kanji-n5" && it.premium && it.track == CourseTrack.Kanji })
+        assertTrue(course.stages.any { it.id == "vocab" && it.premium })
+        assertTrue(course.stages.any { it.id == "phrases" && it.premium })
+        assertTrue(course.stages.any { it.id == "youon" && it.premium })
+        val kanji = course.stage("kanji-n5")!!
+        assertTrue(kanji.lessons.flatMap { it.items }.size >= 80)
+        val vowels = course.stage("hira-basic")!!.lessons.first()
+        assertEquals(listOf("あ", "い", "う", "え", "お"), vowels.items.map { it.text })
+        val word = course.stage("vocab")!!.lessons.first().items.first()
+        assertEquals("hidden", word.reveal)
+        assertTrue(word.glyphs.size > 1)
     }
 
     @Test
-    fun everyCourseCharacterHasKanjiVgStrokesAndRomaji() {
-        val missing = KanaCatalog.allCharacters().filter { glyphs[it].isNullOrEmpty() }
+    fun everyCourseGlyphHasStrokes() {
+        val missing = course.glyphs().filter { glyphs[it].isNullOrEmpty() }
         assertTrue("missing strokes: $missing", missing.isEmpty())
-        for ((character, strokes) in glyphs) {
-            assertTrue(strokes.isNotEmpty())
-            for (stroke in strokes) {
-                assertTrue(stroke.size >= 2)
-                for (point in stroke) {
-                    assertTrue(point.x in -8f..117f)
-                    assertTrue(point.y in -8f..117f)
-                }
-            }
-            val romaji = KanaRomaji.toRomaji(character)
-            assertTrue(romaji.isNotBlank())
-            assertTrue(romaji.all { it in 'a'..'z' })
-            assertNotEquals(character, romaji)
-        }
-        assertEquals(142, glyphs.size)
+        assertTrue(glyphs.size >= course.glyphs().size)
+        assertTrue(glyphs.containsKey("日"))
+        assertTrue(glyphs.getValue("日").size >= 4)
+        assertTrue(glyphs.containsKey("ー"))
     }
 
     @Test
     fun perfectAndSlightlyWobblyStrokesAreAccepted() {
         for ((character, strokes) in glyphs) {
             strokes.forEachIndexed { index, stroke ->
-                assertEquals("$character stroke $index", StrokeVerdict.Accepted, StrokeMatcher.evaluate(stroke, stroke))
-                val noisy = wobble(stroke, body = if (StrokeMatcher.length(stroke) < 18f) 2.5f else 6f, ends = if (StrokeMatcher.length(stroke) < 18f) 2f else 7f)
-                assertEquals("$character stroke $index wobble", StrokeVerdict.Accepted, StrokeMatcher.evaluate(noisy, stroke))
+                assertEquals(
+                    "$character stroke $index",
+                    StrokeVerdict.Accepted,
+                    StrokeMatcher.evaluate(stroke, stroke, StrokeTolerance.Strict),
+                )
+                val noisy = wobble(
+                    stroke,
+                    body = if (StrokeMatcher.length(stroke) < 18f) 2.5f else 6f,
+                    ends = if (StrokeMatcher.length(stroke) < 18f) 2f else 7f,
+                )
+                assertEquals(
+                    "$character stroke $index wobble",
+                    StrokeVerdict.Accepted,
+                    StrokeMatcher.evaluate(noisy, stroke, StrokeTolerance.Relaxed),
+                )
             }
         }
     }
 
     @Test
-    fun reversedLongStrokeAndFarScribbleAreRejected() {
+    fun relaxedAcceptsAnOffsetStartThatStrictRejects() {
+        val stroke = glyphs.getValue("あ").first()
+        val shiftedStart = stroke.mapIndexed { index, point ->
+            if (index == 0) Vec(point.x + 16f, point.y + 8f) else point
+        }
+        assertEquals(
+            StrokeVerdict.Accepted,
+            StrokeMatcher.evaluate(shiftedStart, stroke, StrokeTolerance.Relaxed),
+        )
+        assertNotEquals(
+            StrokeVerdict.Accepted,
+            StrokeMatcher.evaluate(shiftedStart, stroke, StrokeTolerance.Strict),
+        )
+    }
+
+    @Test
+    fun reversedLongStrokeAndFarScribbleAreRejectedAtEveryTolerance() {
         val first = glyphs.getValue("あ")[0]
-        assertEquals(StrokeVerdict.WrongDirection, StrokeMatcher.evaluate(first.asReversed(), first))
-        val shifted = first.map { Vec(it.x + 40f, it.y) }
-        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(shifted, first))
         val scribble = listOf(Vec(5f, 5f), Vec(100f, 10f), Vec(10f, 100f), Vec(90f, 90f))
-        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(scribble, glyphs.getValue("あ")[2]))
+        for (tolerance in StrokeTolerance.entries) {
+            assertEquals(StrokeVerdict.WrongDirection, StrokeMatcher.evaluate(first.asReversed(), first, tolerance))
+            val shifted = first.map { Vec(it.x + 40f, it.y) }
+            assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(shifted, first, tolerance))
+            assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(scribble, glyphs.getValue("あ")[2], tolerance))
+        }
     }
 
     @Test
@@ -78,8 +102,10 @@ class WritingCourseTest {
         assertTrue(ga.size >= 2)
         val tickA = ga[ga.lastIndex - 1]
         val tickB = ga[ga.lastIndex]
-        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(tickA, tickB))
-        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(tickB, tickA))
+        for (tolerance in StrokeTolerance.entries) {
+            assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(tickA, tickB, tolerance))
+            assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(tickB, tickA, tolerance))
+        }
     }
 
     @Test
@@ -88,53 +114,89 @@ class WritingCourseTest {
         assertTrue(StrokeMatcher.dist(circle.first(), circle.last()) < 12f)
         val mid = circle.size / 2
         val rotated = circle.subList(mid, circle.size) + circle.subList(1, mid + 1)
-        assertEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(rotated, circle))
+        assertEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(rotated, circle, StrokeTolerance.Normal))
         val moved = circle.map { Vec(it.x - 30f, it.y) }
-        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(moved, circle))
+        assertNotEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(moved, circle, StrokeTolerance.Relaxed))
     }
 
     @Test
-    fun lessonsUnlockInOrderAndReviewsPreferMistakes() {
-        val level = KanaCatalog.level("hiragana")
+    fun lessonsUnlockInOrderAndPremiumStaysClosed() {
+        val stage = course.stage("hira-basic")!!
         val learned = emptySet<String>()
-        assertEquals(LessonStatus.Available, WritingProgress.status(level, 0, learned))
-        assertEquals(LessonStatus.Locked, WritingProgress.status(level, 1, learned))
+        assertEquals(LessonAccess.Open, WritingProgress.access(stage, 0, learned, premium = false))
+        assertEquals(LessonAccess.Sequential, WritingProgress.access(stage, 1, learned, premium = false))
+        val afterFirst = setOf(stage.lessons[0].id)
+        assertEquals(LessonAccess.Learned, WritingProgress.access(stage, 0, afterFirst, premium = false))
+        assertEquals(LessonAccess.Open, WritingProgress.access(stage, 1, afterFirst, premium = false))
 
-        val afterFirst = setOf(level.lessons[0].id)
-        assertEquals(LessonStatus.Learned, WritingProgress.status(level, 0, afterFirst))
-        assertEquals(LessonStatus.Available, WritingProgress.status(level, 1, afterFirst))
-        assertEquals(LessonStatus.Locked, WritingProgress.status(level, 2, afterFirst))
-
-        val pool = level.lessons[0].characters
-        val stats = mapOf(
-            pool[0] to CharacterStats(mistakes = 0, lastPracticedAt = 500),
-            pool[1] to CharacterStats(mistakes = 4, lastPracticedAt = 900),
-            pool[2] to CharacterStats(mistakes = 4, lastPracticedAt = 100),
-        )
-        val learnedFirst = WritingProgress.withLessonLearned(PersistedProgress(), level.lessons[0].id)
-        val queue = WritingProgress.smartReview(
-            level = level,
-            learned = learnedFirst.learnedLessonIds.toSet(),
-            stats = stats,
-            limit = 3,
-        )
-        assertEquals(pool[2], queue[0])
-        assertEquals(pool[1], queue[1])
-        assertTrue(queue.contains(pool[3]))
-        assertEquals(pool, WritingProgress.reviewAll(level, learned).take(pool.size))
+        val kanji = course.stage("kanji-n5")!!
+        assertEquals(LessonAccess.Premium, WritingProgress.access(kanji, 0, emptySet(), premium = false))
+        assertEquals(LessonAccess.Open, WritingProgress.access(kanji, 0, emptySet(), premium = true))
+        assertFalse(WritingProgress.isPlayable(kanji, kanji.lessons[1].id, emptySet(), premium = true))
     }
 
     @Test
-    fun progressJsonRoundTrips() {
+    fun entitlementIgnoresDebugUnlockOutsideDebugBuilds() {
+        assertFalse(Entitlement.isPremium(playOwned = false, debugUnlock = true, debugBuild = false))
+        assertTrue(Entitlement.isPremium(playOwned = false, debugUnlock = true, debugBuild = true))
+        assertTrue(Entitlement.isPremium(playOwned = true, debugUnlock = false, debugBuild = false))
+        assertFalse(Entitlement.canOpen(stagePremium = true, premium = false))
+        assertTrue(Entitlement.canOpen(stagePremium = true, premium = true))
+        assertTrue(Entitlement.canOpen(stagePremium = false, premium = false))
+    }
+
+    @Test
+    fun spacedReviewPrefersDueAndMistakes() {
+        val stage = course.stage("hira-basic")!!
+        val lesson = stage.lessons.first()
+        val learned = WritingProgress.withLessonLearned(PersistedProgress(), lesson.id)
+        val now = 1_000_000L
+        val due = WritingProgress.dueItems(
+            course = course,
+            learned = learned.learnedLessonIds.toSet(),
+            cards = emptyMap(),
+            now = now,
+            premium = false,
+        )
+        assertEquals(lesson.items.map { it.id }, due.map { it.id })
+
+        val later = lesson.items.associate { it.id to SrsCard(dueAt = now + WritingProgress.DAY_MS, reps = 1, intervalDays = 1) }
+        assertTrue(
+            WritingProgress.dueItems(course, learned.learnedLessonIds.toSet(), later, now, premium = false).isEmpty(),
+        )
+
+        val stats = mapOf(
+            lesson.items[0].id to CharacterStats(mistakes = 1, lastPracticedAt = 50),
+            lesson.items[1].id to CharacterStats(mistakes = 4, lastPracticedAt = 80),
+        )
+        val reinforce = WritingProgress.reinforce(course, learned.learnedLessonIds.toSet(), stats, premium = false, limit = 2)
+        assertEquals(lesson.items[1].id, reinforce[0].id)
+
+        val paid = WritingProgress.dueItems(
+            course = course,
+            learned = setOf(course.stage("kanji-n5")!!.lessons.first().id),
+            cards = emptyMap(),
+            now = now,
+            premium = false,
+        )
+        assertTrue(paid.isEmpty())
+    }
+
+    @Test
+    fun progressJsonRoundTripsWithToleranceAndUnlockFlags() {
         val original = PersistedProgress(
-            learnedLessonIds = listOf("hiragana-1"),
+            learnedLessonIds = listOf("hira-basic-1"),
             stats = mapOf("あ" to CharacterStats(mistakes = 2, successes = 1, lastPracticedAt = 42L)),
+            srs = mapOf("あ" to SrsCard(ease = 2.3f, intervalDays = 3, dueAt = 99L, reps = 2)),
             writingLessonsEnabled = false,
             introSeen = true,
-            listMode = false,
+            tolerance = StrokeTolerance.Strict.name,
+            playPremium = true,
+            debugUnlock = false,
         )
         val decoded = ProgressCodec.decode(ProgressCodec.encode(original))
         assertEquals(original, decoded)
+        assertEquals(StrokeTolerance.Relaxed, WritingProgress.toleranceOf(PersistedProgress()))
     }
 
     private fun wobble(points: List<Vec>, body: Float, ends: Float, seed: Int = 3): List<Vec> {
@@ -148,12 +210,12 @@ class WritingCourseTest {
         }
     }
 
-    private fun strokesFile(): File {
+    private fun asset(name: String): File {
         val candidates = listOf(
-            File("src/main/assets/writing/strokes.json"),
-            File("app/src/main/assets/writing/strokes.json"),
+            File("src/main/assets/writing/$name"),
+            File("app/src/main/assets/writing/$name"),
         )
         return candidates.firstOrNull { it.exists() }
-            ?: error("strokes.json not found from ${File(".").absolutePath}")
+            ?: error("$name not found from ${File(".").absolutePath}")
     }
 }

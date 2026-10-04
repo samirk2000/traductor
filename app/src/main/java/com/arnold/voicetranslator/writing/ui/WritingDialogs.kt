@@ -83,19 +83,19 @@ internal fun WritingIntroCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = Color.White,
+        color = WritingPalette.surface,
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(WritingPalette.introHeader)
+                    .background(WritingPalette.primaryContainer)
                     .padding(vertical = 16.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = title,
-                    color = Color.White,
+                    color = WritingPalette.onSurface,
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Medium,
                 )
@@ -105,21 +105,21 @@ internal fun WritingIntroCard(
                     .padding(horizontal = 28.dp, vertical = 16.dp)
                     .fillMaxWidth()
                     .height(210.dp)
-                    .background(Color(0xFFE6E8EC), RoundedCornerShape(8.dp)),
+                    .background(WritingPalette.surfaceVariant, RoundedCornerShape(8.dp)),
             ) {
                 IntroDiagram(strokes = strokes, modifier = Modifier.fillMaxSize().padding(8.dp))
             }
             Column(modifier = Modifier.padding(horizontal = 22.dp)) {
-                Text(text = eachCharacter, color = Color(0xFF1C1C1E), fontSize = 18.sp, lineHeight = 24.sp)
+                Text(text = eachCharacter, color = WritingPalette.onSurface, fontSize = 16.sp, lineHeight = 22.sp)
                 Spacer(Modifier.height(14.dp))
                 Text(
                     text = highlightDots(drawSentence, greenWord, redWord),
-                    color = Color(0xFF1C1C1E),
-                    fontSize = 18.sp,
-                    lineHeight = 24.sp,
+                    color = WritingPalette.onSurface,
+                    fontSize = 16.sp,
+                    lineHeight = 22.sp,
                 )
                 Spacer(Modifier.height(14.dp))
-                Text(text = optional, color = Color(0xFF1C1C1E), fontSize = 18.sp, lineHeight = 24.sp)
+                Text(text = optional, color = WritingPalette.muted, fontSize = 15.sp, lineHeight = 21.sp)
             }
             Button(
                 onClick = onConfirm,
@@ -129,8 +129,8 @@ internal fun WritingIntroCard(
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = WritingPalette.ok,
-                    contentColor = Color.White,
+                    containerColor = WritingPalette.primary,
+                    contentColor = Color(0xFF0F1115),
                 ),
             ) {
                 Text(text = confirm, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -153,7 +153,7 @@ internal fun WritingSettingsDialog(
     Dialog(onDismissRequest = onClose) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF343C4E),
+            color = WritingPalette.surface,
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(text = title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
@@ -168,7 +168,7 @@ internal fun WritingSettingsDialog(
                         checked = lessonsEnabled,
                         onCheckedChange = onToggle,
                         colors = SwitchDefaults.colors(
-                            checkedTrackColor = WritingPalette.hiragana,
+                            checkedTrackColor = WritingPalette.primary,
                             checkedThumbColor = Color.White,
                         ),
                     )
@@ -176,7 +176,7 @@ internal fun WritingSettingsDialog(
                 Spacer(Modifier.height(16.dp))
                 Text(text = attribution, color = WritingPalette.muted, fontSize = 12.sp, lineHeight = 16.sp)
                 TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) {
-                    Text(text = closeLabel, color = WritingPalette.hiragana)
+                    Text(text = closeLabel, color = WritingPalette.primary)
                 }
             }
         }
@@ -202,8 +202,8 @@ internal fun WritingMessageDialog(
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = WritingPalette.ok,
-                        contentColor = Color.White,
+                        containerColor = WritingPalette.primary,
+                        contentColor = Color(0xFF0F1115),
                     ),
                 ) {
                     Text(text = confirm, fontWeight = FontWeight.Bold)
@@ -221,7 +221,7 @@ private fun IntroDiagram(strokes: List<List<Vec>>, modifier: Modifier = Modifier
             drawKanaStroke(stroke, Color(0xFF6E7580), width, size)
         }
         val labelPaint = Paint().apply {
-            color = android.graphics.Color.parseColor("#F5A623")
+            color = android.graphics.Color.parseColor("#8AB4F8")
             textAlign = Paint.Align.CENTER
             isAntiAlias = true
             isFakeBoldText = true
@@ -231,7 +231,7 @@ private fun IntroDiagram(strokes: List<List<Vec>>, modifier: Modifier = Modifier
             if (stroke.size < 2) return@forEachIndexed
             val from = kanaOffset(StrokeMatcher.pointAt(stroke, 0.08f), size, padFraction = 0.12f)
             val to = kanaOffset(StrokeMatcher.pointAt(stroke, 0.34f), size, padFraction = 0.12f)
-            drawArrow(from, to, Color(0xFFF5A623), widthPx = size.minDimension * 0.012f, headPx = size.minDimension * 0.045f)
+            drawArrow(from, to, WritingPalette.primary, widthPx = size.minDimension * 0.012f, headPx = size.minDimension * 0.045f)
             val dx = to.x - from.x
             val dy = to.y - from.y
             val length = hypot(dx, dy).coerceAtLeast(1f)
@@ -253,9 +253,9 @@ private fun highlightDots(sentence: String, greenWord: String, redWord: String) 
     data class Mark(val start: Int, val end: Int, val color: Color)
     val marks = buildList {
         val greenAt = sentence.indexOf(greenWord)
-        if (greenAt >= 0) add(Mark(greenAt, greenAt + greenWord.length, Color(0xFF1F9D4D)))
+        if (greenAt >= 0) add(Mark(greenAt, greenAt + greenWord.length, WritingPalette.secondary))
         val redAt = sentence.indexOf(redWord)
-        if (redAt >= 0) add(Mark(redAt, redAt + redWord.length, Color(0xFFE23B3B)))
+        if (redAt >= 0) add(Mark(redAt, redAt + redWord.length, WritingPalette.endDot))
     }.sortedBy { it.start }
     var cursor = 0
     for (mark in marks) {

@@ -2,17 +2,19 @@ package com.arnold.voicetranslator.writing
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.math.roundToInt
 
-enum class LessonStatus {
+enum class LessonAccess {
     Learned,
-    Available,
-    Locked,
+    Open,
+    Sequential,
+    Premium,
 }
 
 enum class PracticeMode {
     Lesson,
-    SmartReview,
-    ReviewAll,
+    DueReview,
+    Reinforce,
 }
 
 @Serializable
@@ -22,75 +24,145 @@ data class CharacterStats(
     val lastPracticedAt: Long = 0L,
 )
 
+/** SM-2 card for one course item (a kana, a word, a kanji, or a phrase). */
+@Serializable
+data class SrsCard(
+    val ease: Float = 2.5f,
+    val intervalDays: Int = 0,
+    val dueAt: Long = 0L,
+    val reps: Int = 0,
+    val lapses: Int = 0,
+)
+
 @Serializable
 data class PersistedProgress(
     val learnedLessonIds: List<String> = emptyList(),
     val stats: Map<String, CharacterStats> = emptyMap(),
+    val srs: Map<String, SrsCard> = emptyMap(),
     val writingLessonsEnabled: Boolean = true,
     val introSeen: Boolean = false,
     val listMode: Boolean = true,
+    val tolerance: String = StrokeTolerance.Relaxed.name,
+    /** Set from a confirmed Play Billing purchase. */
+    val playPremium: Boolean = false,
+    /**
+     * Owner unlock for debug builds only. Release builds ignore this flag
+     * even if it is present in an old file.
+     */
+    val debugUnlock: Boolean = false,
 )
 
 /**
- * Pure progress rules: sequential unlocking, and which characters a review
- * should ask for. Persistence is just [PersistedProgress] encoded as JSON.
+ * Whether paid stages open. The debug switch counts only when the build
+ * itself is a debug build, so a release APK has no unlock backdoor.
  */
+object Entitlement {
+    fun isPremium(playOwned: Boolean, debugUnlock: Boolean, debugBuild: Boolean): Boolean =
+        playOwned || (debugBuild && debugUnlock)
+
+    fun canOpen(stagePremium: Boolean, premium: Boolean): Boolean = !stagePremium || premium
+}
+
 object WritingProgress {
 
-    fun status(level: WritingLevelDef, lessonIndex: Int, learned: Set<String>): LessonStatus {
-        val lesson = level.lessons[lessonIndex]
-        if (lesson.id in learned) return LessonStatus.Learned
-        if (lessonIndex == 0 || level.lessons[lessonIndex - 1].id in learned) {
-            return LessonStatus.Available
-        }
-        return LessonStatus.Locked
+    fun toleranceOf(progress: PersistedProgress): StrokeTolerance =
+        StrokeTolerance.entries.firstOrNull { it.name == progress.tolerance } ?: StrokeTolerance.Relaxed
+
+    fun access(
+        stage: CourseStage,
+        lessonIndex: Int,
+        learned: Set<String>,
+        premium: Boolean,
+    ): LessonAccess {
+        if (!Entitlement.canOpen(stage.premium, premium)) return LessonAccess.Premium
+        val lesson = stage.lessons[lessonIndex]
+        if (lesson.id in learned) return LessonAccess.Learned
+        if (lessonIndex == 0 || stage.lessons[lessonIndex - 1].id in learned) return LessonAccess.Open
+        return LessonAccess.Sequential
     }
 
-    fun isUnlocked(level: WritingLevelDef, lessonId: String, learned: Set<String>): Boolean {
-        val index = level.lessons.indexOfFirst { it.id == lessonId }
+    fun isPlayable(stage: CourseStage, lessonId: String, learned: Set<String>, premium: Boolean): Boolean {
+        val index = stage.lessons.indexOfFirst { it.id == lessonId }
         if (index < 0) return false
-        return status(level, index, learned) != LessonStatus.Locked
-    }
-
-    /** Characters from unlocked lessons, in course order. */
-    fun reviewAll(level: WritingLevelDef, learned: Set<String>): List<String> {
-        return level.lessons
-            .filter { isUnlocked(level, it.id, learned) }
-            .flatMap { it.characters }
+        val access = access(stage, index, learned, premium)
+        return access == LessonAccess.Open || access == LessonAccess.Learned
     }
 
     /**
-     * Up to [limit] characters from the unlocked lessons.
-     * More mistakes come first; within the same mistake count, the least
-     * recently practiced (never practiced counts as oldest) comes first.
+     * Learned items that are due, from stages the learner is allowed to open.
+     * Items without a card yet count as due.
      */
-    fun smartReview(
-        level: WritingLevelDef,
+    fun dueItems(
+        course: Course,
+        learned: Set<String>,
+        cards: Map<String, SrsCard>,
+        now: Long,
+        premium: Boolean,
+        limit: Int = DUE_LIMIT,
+    ): List<CourseItem> {
+        return accessibleItems(course, learned, premium)
+            .filter { item ->
+                val card = cards[item.id]
+                card == null || card.dueAt <= now
+            }
+            .sortedBy { cards[it.id]?.dueAt ?: 0L }
+            .take(limit)
+    }
+
+    /** Learned items with the most mistakes, so practice goes where it hurts. */
+    fun reinforce(
+        course: Course,
         learned: Set<String>,
         stats: Map<String, CharacterStats>,
-        limit: Int = SMART_REVIEW_LIMIT,
-    ): List<String> {
-        val pool = reviewAll(level, learned)
-        val order = pool.withIndex().associate { it.value to it.index }
+        premium: Boolean,
+        limit: Int = REINFORCE_LIMIT,
+    ): List<CourseItem> {
+        val pool = accessibleItems(course, learned, premium)
+        if (pool.isEmpty()) return emptyList()
         return pool
             .sortedWith(
-                compareByDescending<String> { stats[it]?.mistakes ?: 0 }
-                    .thenBy { stats[it]?.lastPracticedAt ?: 0L }
-                    .thenBy { order[it] ?: 0 },
+                compareByDescending<CourseItem> { stats[it.id]?.mistakes ?: 0 }
+                    .thenBy { stats[it.id]?.lastPracticedAt ?: 0L },
             )
             .take(limit)
     }
 
-    fun withMistake(progress: PersistedProgress, character: String, now: Long): PersistedProgress {
-        val current = progress.stats[character] ?: CharacterStats()
-        val updated = current.copy(mistakes = current.mistakes + 1, lastPracticedAt = now)
-        return progress.copy(stats = progress.stats + (character to updated))
+    fun schedule(card: SrsCard, mistakesDuringItem: Int, now: Long): SrsCard {
+        val quality = when {
+            mistakesDuringItem <= 0 -> 5
+            mistakesDuringItem <= 2 -> 4
+            else -> 3
+        }
+        val delta = 0.1f - (5 - quality) * (0.08f + (5 - quality) * 0.02f)
+        val ease = (card.ease + delta).coerceAtLeast(1.3f)
+        val interval = when (card.reps) {
+            0 -> 1
+            1 -> 3
+            else -> (card.intervalDays * ease).roundToInt().coerceAtLeast(1)
+        }
+        return card.copy(
+            ease = ease,
+            intervalDays = interval,
+            reps = card.reps + 1,
+            dueAt = now + interval * DAY_MS,
+        )
     }
 
-    fun withSuccess(progress: PersistedProgress, character: String, now: Long): PersistedProgress {
-        val current = progress.stats[character] ?: CharacterStats()
+    fun withMistake(progress: PersistedProgress, itemId: String, now: Long): PersistedProgress {
+        val current = progress.stats[itemId] ?: CharacterStats()
+        val updated = current.copy(mistakes = current.mistakes + 1, lastPracticedAt = now)
+        return progress.copy(stats = progress.stats + (itemId to updated))
+    }
+
+    fun withSuccess(progress: PersistedProgress, itemId: String, now: Long): PersistedProgress {
+        val current = progress.stats[itemId] ?: CharacterStats()
         val updated = current.copy(successes = current.successes + 1, lastPracticedAt = now)
-        return progress.copy(stats = progress.stats + (character to updated))
+        return progress.copy(stats = progress.stats + (itemId to updated))
+    }
+
+    fun withScheduled(progress: PersistedProgress, itemId: String, mistakes: Int, now: Long): PersistedProgress {
+        val card = schedule(progress.srs[itemId] ?: SrsCard(), mistakes, now)
+        return progress.copy(srs = progress.srs + (itemId to card))
     }
 
     fun withLessonLearned(progress: PersistedProgress, lessonId: String): PersistedProgress {
@@ -98,7 +170,16 @@ object WritingProgress {
         return progress.copy(learnedLessonIds = progress.learnedLessonIds + lessonId)
     }
 
-    const val SMART_REVIEW_LIMIT = 10
+    private fun accessibleItems(course: Course, learned: Set<String>, premium: Boolean): List<CourseItem> {
+        return course.stages
+            .filter { Entitlement.canOpen(it.premium, premium) }
+            .flatMap { stage -> stage.lessons.filter { it.id in learned } }
+            .flatMap { it.items }
+    }
+
+    const val DUE_LIMIT = 12
+    const val REINFORCE_LIMIT = 8
+    const val DAY_MS = 86_400_000L
 }
 
 object ProgressCodec {

@@ -82,10 +82,11 @@ internal fun WritingPracticePage(
     val fraction = if (state.sessionComplete) {
         1f
     } else {
-        (state.characterIndex + state.strokeIndex.toFloat() / strokeCount) /
-            state.totalCharacters.coerceAtLeast(1)
+        val glyphFraction = (state.glyphIndex + state.strokeIndex.toFloat() / strokeCount) /
+            state.glyphCount.coerceAtLeast(1)
+        (state.itemIndex + glyphFraction) / state.itemCount.coerceAtLeast(1)
     }
-    val characterKey = state.character to state.characterIndex
+    val characterKey = Triple(state.character, state.itemIndex, state.glyphIndex)
     var playToken by remember(characterKey) { mutableIntStateOf(0) }
     var playProgress by remember(characterKey) { mutableFloatStateOf(-1f) }
     LaunchedEffect(playToken, characterKey) {
@@ -119,21 +120,33 @@ internal fun WritingPracticePage(
             onSettings = onSettings,
         )
         Text(
-            text = localized(uiLanguage, R.string.writing_prompt),
-            color = WritingPalette.muted,
-            fontSize = 18.sp,
-            modifier = Modifier.padding(top = 18.dp, start = 8.dp),
-        )
-        Text(
-            text = state.romaji,
-            color = androidx.compose.ui.graphics.Color.White,
-            fontSize = 64.sp,
-            fontWeight = FontWeight.Light,
+            text = state.headline,
+            color = WritingPalette.onSurface,
+            fontSize = if (state.headline.length <= 4) 48.sp else 28.sp,
+            fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(top = 8.dp),
         )
+        Text(
+            text = state.subtitle,
+            color = WritingPalette.secondary,
+            fontSize = 18.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp, bottom = 4.dp),
+        )
+        if (state.glyphCount > 1) {
+            Text(
+                text = localized(uiLanguage, R.string.writing_glyph_progress, state.glyphIndex + 1, state.glyphCount),
+                color = WritingPalette.muted,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -165,7 +178,7 @@ internal fun WritingPracticePage(
                     Icon(
                         imageVector = Icons.Filled.Check,
                         contentDescription = null,
-                        tint = androidx.compose.ui.graphics.Color.White,
+                        tint = WritingPalette.onSurface,
                         modifier = Modifier.size(52.dp),
                     )
                 }
@@ -182,41 +195,39 @@ internal fun WritingPracticePage(
                     .padding(bottom = 6.dp),
             )
         }
-        Column(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            IconButton(
+            Button(
                 onClick = { playToken += 1 },
-                modifier = Modifier
-                    .size(64.dp)
-                    .background(WritingPalette.hiragana, CircleShape),
+                modifier = Modifier.weight(1f).height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = WritingPalette.surfaceVariant,
+                    contentColor = WritingPalette.onSurface,
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = localized(uiLanguage, R.string.writing_play),
-                    tint = androidx.compose.ui.graphics.Color.White,
-                    modifier = Modifier.size(36.dp),
-                )
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text(text = localized(uiLanguage, R.string.writing_watch_order), fontSize = 14.sp)
             }
             if (state.showGuide) {
                 Button(
                     onClick = onHint,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = WritingPalette.katakana,
-                        contentColor = androidx.compose.ui.graphics.Color.White,
+                        containerColor = WritingPalette.primary,
+                        contentColor = androidx.compose.ui.graphics.Color(0xFF0F1115),
                     ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                 ) {
                     Text(
-                        text = localized(uiLanguage, R.string.writing_show_hint),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = localized(uiLanguage, R.string.writing_teach_stroke),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
@@ -261,7 +272,7 @@ private fun PracticeTopBar(
             Icon(
                 imageVector = Icons.Filled.Close,
                 contentDescription = localized(uiLanguage, R.string.close),
-                tint = androidx.compose.ui.graphics.Color.White,
+                tint = WritingPalette.onSurface,
             )
         }
         LinearProgressIndicator(
@@ -270,14 +281,14 @@ private fun PracticeTopBar(
                 .weight(1f)
                 .height(8.dp)
                 .clip(CircleShape),
-            color = androidx.compose.ui.graphics.Color.White,
-            trackColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f),
+            color = WritingPalette.primary,
+            trackColor = WritingPalette.surfaceVariant,
         )
         IconButton(onClick = onSettings) {
             Icon(
                 imageVector = Icons.Filled.Settings,
                 contentDescription = localized(uiLanguage, R.string.settings_cd),
-                tint = androidx.compose.ui.graphics.Color.White,
+                tint = WritingPalette.onSurface,
             )
         }
     }

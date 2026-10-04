@@ -22,6 +22,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // One-time product created in Play Console. Change the id here and in the console together.
+        buildConfigField("String", "PREMIUM_PRODUCT_ID", "\"premium_unlock\"")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -93,6 +95,7 @@ dependencies {
 
     implementation(libs.mlkit.translate)
     implementation(libs.kuromoji.ipadic)
+    implementation(libs.billing)
 
     debugImplementation(libs.androidx.ui.tooling)
 

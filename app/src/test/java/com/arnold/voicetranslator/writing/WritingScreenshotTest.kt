@@ -1,27 +1,25 @@
 package com.arnold.voicetranslator.writing
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.Modifier
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import com.arnold.voicetranslator.ui.localization.UiLanguage
+import com.arnold.voicetranslator.writing.ui.PaywallPage
+import com.arnold.voicetranslator.writing.ui.SettingsPage
 import com.arnold.voicetranslator.writing.ui.WritingActions
 import com.arnold.voicetranslator.writing.ui.WritingCourse
-import com.arnold.voicetranslator.writing.ui.WritingIntroCard
 import com.arnold.voicetranslator.writing.ui.WritingPalette
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
 
-/**
- * Renders the four course screens. Run with `recordPaparazziDebug` to refresh
- * the images under src/test/snapshots.
- */
+/** Renders the course path, practice, paywall and settings. */
 class WritingScreenshotTest {
 
     @get:Rule
@@ -40,54 +38,19 @@ class WritingScreenshotTest {
     }
 
     @Test
-    fun levelPicker() {
-        snap("level-picker") {
+    fun courseMap() {
+        snap("course-map") {
             WritingCourse(
                 state = WritingUiState(
-                    screen = WritingScreenKind.Levels,
-                    levels = KanaCatalog.levels.map { level ->
-                        LevelCard(
-                            id = level.id,
-                            number = level.number,
-                            script = level.script,
-                            symbol = level.symbol,
-                            learnedCount = 0,
-                            lessonCount = level.lessons.size,
-                        )
-                    },
-                ),
-                uiLanguage = UiLanguage.ES,
-                actions = noopActions(),
-            )
-        }
-    }
-
-    @Test
-    fun lessonList() {
-        val level = KanaCatalog.level("hiragana")
-        val rows = level.lessons.take(8).mapIndexed { index, lesson ->
-            LessonRow(
-                id = lesson.id,
-                number = lesson.number,
-                symbol = lesson.characters.first(),
-                preview = KanaCatalog.preview(lesson, level.script),
-                status = when (index) {
-                    0, 1 -> LessonStatus.Learned
-                    2 -> LessonStatus.Available
-                    else -> LessonStatus.Locked
-                },
-            )
-        }
-        snap("lesson-list") {
-            WritingCourse(
-                state = WritingUiState(
-                    screen = WritingScreenKind.Lessons,
-                    viewMode = LessonViewMode.List,
-                    lessons = LessonListState(
-                        levelId = level.id,
-                        script = level.script,
-                        levelNumber = level.number,
-                        rows = rows,
+                    screen = WritingScreenKind.Path,
+                    dueCount = 4,
+                    stages = listOf(
+                        stage("hira-basic", "Hiragana básico", "Las 46 sílabas, sin dakuten.", CourseTrack.Kana, premium = false, learned = 3, total = 10),
+                        stage("kata-basic", "Katakana básico", "Las mismas sílabas en katakana.", CourseTrack.Kana, premium = false, learned = 0, total = 10),
+                        stage("hira-dakuten", "Hiragana con marca", "Dakuten y handakuten.", CourseTrack.Kana, premium = true, learned = 0, total = 5, locked = true),
+                        stage("vocab", "Vocabulario", "Escribe la palabra a partir del significado.", CourseTrack.Words, premium = true, learned = 0, total = 5, locked = true),
+                        stage("kanji-n5", "Kanji N5", "Unos 80 kanji de inicio.", CourseTrack.Kanji, premium = true, learned = 0, total = 16, locked = true),
+                        stage("phrases", "Frases", "Escribe saludos y frases cortas.", CourseTrack.Phrases, premium = true, learned = 0, total = 3, locked = true),
                     ),
                 ),
                 uiLanguage = UiLanguage.ES,
@@ -105,12 +68,15 @@ class WritingScreenshotTest {
                     writingLessonsEnabled = true,
                     practice = PracticeState(
                         mode = PracticeMode.Lesson,
-                        character = "あ",
-                        romaji = "a",
-                        strokes = glyphs.getValue("あ"),
+                        headline = "agua",
+                        subtitle = "mizu",
+                        character = "み",
+                        strokes = glyphs.getValue("み"),
                         strokeIndex = 0,
-                        totalCharacters = 5,
-                        characterIndex = 0,
+                        glyphIndex = 0,
+                        glyphCount = 2,
+                        itemIndex = 0,
+                        itemCount = 4,
                         showGuide = true,
                         showHint = false,
                         error = null,
@@ -126,28 +92,53 @@ class WritingScreenshotTest {
     }
 
     @Test
-    fun writingIntro() {
-        snap("writing-intro") {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(WritingPalette.background)
-                    .padding(12.dp),
-            ) {
-                WritingIntroCard(
-                    strokes = glyphs.getValue("あ"),
-                    title = "Lecciones de escritura",
-                    eachCharacter = "Cada carácter nuevo tiene una lección de escritura.",
-                    drawSentence = "Traza cada trazo desde el punto verde hasta el punto rojo.",
-                    greenWord = "verde",
-                    redWord = "rojo",
-                    optional = "Las lecciones de escritura son opcionales y se pueden desactivar en el menú de ajustes.",
-                    confirm = "Aceptar",
-                    onConfirm = {},
+    fun paywall() {
+        snap("paywall") {
+            Box(Modifier.fillMaxSize().background(WritingPalette.background)) {
+                PaywallPage(
+                    uiLanguage = UiLanguage.ES,
+                    priceLabel = "4,99 €",
+                    owned = false,
+                    onBuy = {},
+                    onRestore = {},
+                    onClose = {},
                 )
             }
         }
     }
+
+    @Test
+    fun settings() {
+        snap("settings") {
+            Box(Modifier.fillMaxSize().background(WritingPalette.background).padding(0.dp)) {
+                SettingsPage(
+                    state = WritingUiState(
+                        tolerance = StrokeTolerance.Relaxed,
+                        writingLessonsEnabled = true,
+                        debugBuild = true,
+                        debugUnlock = false,
+                    ),
+                    uiLanguage = UiLanguage.ES,
+                    onClose = {},
+                    onToggleLessons = {},
+                    onTolerance = {},
+                    onRestore = {},
+                    onDebugUnlock = {},
+                )
+            }
+        }
+    }
+
+    private fun stage(
+        id: String,
+        title: String,
+        blurb: String,
+        track: CourseTrack,
+        premium: Boolean,
+        learned: Int,
+        total: Int,
+        locked: Boolean = false,
+    ) = StageCard(id, title, blurb, track, premium, learned, total, locked)
 
     private fun snap(name: String, content: @androidx.compose.runtime.Composable () -> Unit) {
         paparazzi.snapshot(name = name) {
@@ -156,12 +147,17 @@ class WritingScreenshotTest {
     }
 
     private fun noopActions() = WritingActions(
-        onLevel = {},
+        onStage = {},
         onCloseLessons = {},
         onLesson = {},
-        onSmartReview = {},
-        onReviewAll = {},
-        onViewMode = {},
+        onDue = {},
+        onReinforce = {},
+        onOpenPaywall = {},
+        onClosePaywall = {},
+        onBuy = {},
+        onRestore = {},
+        onTolerance = {},
+        onDebugUnlock = {},
         onOpenSettings = {},
         onCloseSettings = {},
         onToggleLessons = {},

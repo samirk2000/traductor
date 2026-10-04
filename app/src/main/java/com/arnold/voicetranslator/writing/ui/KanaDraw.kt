@@ -10,35 +10,31 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.arnold.voicetranslator.writing.StrokeMatcher
 import com.arnold.voicetranslator.writing.Vec
-import com.arnold.voicetranslator.writing.WritingScript
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
 internal object WritingPalette {
-    val background = Color(0xFF2B3344)
-    val hiragana = Color(0xFF5EB3EA)
-    val katakana = Color(0xFFF5A623)
-    val mixed = Color(0xFF3DCC73)
-    val locked = Color(0xFF8E949E)
-    val reviewAll = Color(0xFF7EC8EA)
-    val ink = Color(0xFFF7F8FA)
-    val guide = Color(0xFF9AA3B5)
-    val startDot = Color(0xFF22C55E)
-    val endDot = Color(0xFFEF4444)
-    val canvas = Color(0xFF3A4458)
-    val muted = Color(0xFFC5CAD3)
-    val introHeader = Color(0xFF7EBEF0)
-    val ok = Color(0xFF34C759)
+    val background = Color(0xFF0F1115)
+    val surface = Color(0xFF171A21)
+    val surfaceVariant = Color(0xFF21252E)
+    val primary = Color(0xFF8AB4F8)
+    val primaryContainer = Color(0xFF1B3A5A)
+    val secondary = Color(0xFF7EE0DE)
+    val secondaryContainer = Color(0xFF14494A)
+    val onSurface = Color(0xFFE2E6EC)
+    val muted = Color(0xFFA4A9B3)
+    val ink = Color(0xFFE8EEF6)
+    val guide = Color(0xFF5C6573)
+    val startDot = Color(0xFF7EE0DE)
+    val endDot = Color(0xFFFF8A7A)
+    val canvas = Color(0xFF171A21)
+    val ok = Color(0xFF7EE0DE)
     val error = Color(0xFFFF6B6B)
-    val hint = Color(0xFFFFD56A)
-}
-
-internal fun scriptColor(script: WritingScript): Color = when (script) {
-    WritingScript.Hiragana -> WritingPalette.hiragana
-    WritingScript.Katakana -> WritingPalette.katakana
-    WritingScript.Mixed -> WritingPalette.mixed
+    val hint = Color(0xFF8AB4F8)
+    val locked = Color(0xFF6B7280)
+    val rail = Color(0xFF2C3544)
 }
 
 internal fun kanaOffset(point: Vec, size: Size, padFraction: Float = 0.08f): Offset {
