@@ -28,6 +28,9 @@ class TtsManager(context: Context) {
     /** Fired once the engine reports initialization success. */
     var onReady: () -> Unit = {}
 
+    /** Fired when the engine fails to initialize. */
+    var onUnavailable: () -> Unit = {}
+
     private val appContext = context.applicationContext
     private var tts: android.speech.tts.TextToSpeech? = null
     private var pendingLocale: Locale? = null
@@ -103,6 +106,7 @@ class TtsManager(context: Context) {
                 onReady()
             } else {
                 Log.w(TAG, "TextToSpeech initialization failed (status=$status)")
+                onUnavailable()
             }
         }
     }
@@ -111,11 +115,13 @@ class TtsManager(context: Context) {
      * Configures the language for synthesis. If the engine isn't ready yet, the
      * locale is applied as soon as initialization completes.
      */
-    fun setLocale(targetLocale: Locale) {
+    /**
+     * Configures the language for synthesis. The result is
+     * [android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED] until the engine is ready.
+     */
+    fun setLocale(targetLocale: Locale): Int {
         pendingLocale = targetLocale
-        if (isAvailable) {
-            applyLocale(targetLocale)
-        }
+        return if (isAvailable) applyLocale(targetLocale) else android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED
     }
 
     /**
@@ -167,9 +173,8 @@ class TtsManager(context: Context) {
         abandonAudioFocus()
     }
 
-    private fun applyLocale(locale: Locale) {
-        tts?.setLanguage(locale)
-    }
+    private fun applyLocale(locale: Locale): Int =
+        tts?.setLanguage(locale) ?: android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED
 
     private companion object {
         const val TAG = "TtsManager"

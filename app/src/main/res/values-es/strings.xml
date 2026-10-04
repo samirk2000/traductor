@@ -156,6 +156,9 @@
     <string name="writing_answer_shown">Así se escribe.</string>
     <string name="writing_beginner">Modo principiante</string>
     <string name="writing_beginner_desc">Mantiene la guía durante la lección. El repaso de hoy sigue siendo de memoria.</string>
+    <string name="writing_auto_pronounce">Pronunciación automática</string>
+    <string name="writing_auto_pronounce_desc">Dice la lectura en japonés al mostrar cada carácter.</string>
+    <string name="writing_speak">Escuchar la pronunciación</string>
     <string name="writing_watch_order">Ver el orden</string>
     <string name="writing_intro_title">Cómo se traza</string>
     <string name="writing_intro_each">Los caracteres nuevos traen una guía de trazos.</string>
@@ -168,7 +171,7 @@
     <string name="writing_lessons_toggle">Guía de trazos</string>
     <string name="writing_lessons_toggle_desc">Muestra el orden, los puntos de inicio y fin, y el trazo modelo.</string>
     <string name="writing_tolerance">Tolerancia del trazo</string>
-    <string name="writing_tolerance_desc">Relajado admite un poco de temblor, pero la forma, la dirección y el lugar tienen que coincidir. Estricto pide más precisión.</string>
+    <string name="writing_tolerance_desc">Relajado admite temblor y un trazo un poco corto o largo. Una dirección invertida o una forma claramente distinta se rechaza. Estricto pide más precisión.</string>
     <string name="writing_tolerance_relaxed">Relajado</string>
     <string name="writing_tolerance_normal">Normal</string>
     <string name="writing_tolerance_strict">Estricto</string>

@@ -14,8 +14,10 @@ enum class StrokeVerdict {
 
 /**
  * How far a stroke may drift from the KanjiVG centerline.
- * [Relaxed] is the default. A little wobble still passes. Direction, shape,
- * and where the stroke sits in the cell have to match.
+ * [Relaxed] is the default, between a loose trace and a strict one.
+ * Normal handwriting wobble, a slightly short or long stroke, and a small
+ * offset still pass. A reversed stroke, a clearly different shape, or a
+ * stroke in the wrong part of the cell does not.
  */
 enum class StrokeTolerance {
     Relaxed,
@@ -98,15 +100,15 @@ object StrokeMatcher {
 
     private fun limits(short: Boolean, tolerance: StrokeTolerance): Limits = when (tolerance) {
         StrokeTolerance.Relaxed -> if (short) {
-            // Short marks (dakuten ticks) stay tight so neighbours are not interchangeable.
-            Limits(0.30f, 6.0f, 6.0f, 4.8f, 8.0f, 6.0f, 5f, 5.2f, 0.50f, 1.70f, 4.5f)
+            // Short marks (dakuten ticks) stay tighter so neighbours are not interchangeable.
+            Limits(0.24f, 6.6f, 6.6f, 5.7f, 10f, 7f, 11f, 6.0f, 0.45f, 1.85f, 6f)
         } else {
-            Limits(0.50f, 16f, 18f, 11f, 20f, 14f, 6f, 13f, 0.68f, 1.45f, 14f)
+            Limits(0.38f, 24f, 27f, 18.5f, 28f, 22f, 14f, 20f, 0.55f, 1.70f, 18f)
         }
         StrokeTolerance.Normal -> if (short) {
-            Limits(0.38f, 5.0f, 5.0f, 4.0f, 6.5f, 5.0f, 4f, 4.2f, 0.58f, 1.50f, 3.5f)
+            Limits(0.36f, 5.1f, 5.1f, 4.3f, 7.5f, 5.4f, 7f, 4.6f, 0.56f, 1.60f, 4f)
         } else {
-            Limits(0.58f, 12f, 13f, 8f, 15f, 11f, 5f, 9f, 0.75f, 1.32f, 10f)
+            Limits(0.53f, 16f, 18f, 12f, 20f, 15f, 9f, 13f, 0.68f, 1.45f, 12f)
         }
         StrokeTolerance.Strict -> if (short) {
             Limits(0.48f, 3.6f, 3.6f, 3.0f, 5.0f, 3.8f, 3f, 3.2f, 0.68f, 1.35f, 2.4f)
@@ -123,8 +125,8 @@ object StrokeMatcher {
         tolerance: StrokeTolerance,
     ): StrokeVerdict {
         val (minRatio, maxRatio, center, coverLimit) = when (tolerance) {
-            StrokeTolerance.Relaxed -> ClosedLimits(0.55f, 2.2f, 12f, 12f)
-            StrokeTolerance.Normal -> ClosedLimits(0.62f, 1.9f, 9f, 9f)
+            StrokeTolerance.Relaxed -> ClosedLimits(0.47f, 2.6f, 15f, 15f)
+            StrokeTolerance.Normal -> ClosedLimits(0.58f, 2.15f, 11f, 11f)
             StrokeTolerance.Strict -> ClosedLimits(0.72f, 1.65f, 6.5f, 6.5f)
         }
         if (userLength < expectedLength * minRatio) return StrokeVerdict.TooShort

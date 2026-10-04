@@ -158,6 +158,9 @@
     <string name="writing_answer_shown">Here is how it is written.</string>
     <string name="writing_beginner">Beginner mode</string>
     <string name="writing_beginner_desc">Keeps the guide on during the lesson. Today\'s review is still from memory.</string>
+    <string name="writing_auto_pronounce">Automatic pronunciation</string>
+    <string name="writing_auto_pronounce_desc">Says the Japanese reading when each character is shown.</string>
+    <string name="writing_speak">Hear the pronunciation</string>
     <string name="writing_watch_order">Watch the order</string>
     <string name="writing_intro_title">How tracing works</string>
     <string name="writing_intro_each">New characters come with a tracing guide.</string>
@@ -170,7 +173,7 @@
     <string name="writing_lessons_toggle">Tracing guide</string>
     <string name="writing_lessons_toggle_desc">Shows stroke order, the start and end dots, and the model stroke.</string>
     <string name="writing_tolerance">Stroke tolerance</string>
-    <string name="writing_tolerance_desc">Relaxed allows a little wobble, but the shape, direction, and position still have to match. Strict asks for more precision.</string>
+    <string name="writing_tolerance_desc">Relaxed allows wobble and a slightly short or long stroke. A reversed direction or a clearly different shape is rejected. Strict asks for more precision.</string>
     <string name="writing_tolerance_relaxed">Relaxed</string>
     <string name="writing_tolerance_normal">Normal</string>
     <string name="writing_tolerance_strict">Strict</string>

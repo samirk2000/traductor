@@ -75,6 +75,8 @@ data class PracticeState(
     val userStrokes: List<List<Vec>> = emptyList(),
     /** Grey KanjiVG reference drawn behind [userStrokes]. */
     val showReference: Boolean = false,
+    /** Speaker control. Hidden when Japanese speech is unavailable. */
+    val showSpeaker: Boolean = false,
 )
 
 data class WritingUiState(
@@ -96,6 +98,7 @@ data class WritingUiState(
     val introStrokes: List<List<Vec>> = emptyList(),
     val uiLanguage: UiLanguage = UiLanguage.ES,
     val beginnerMode: Boolean = false,
+    val autoPronounce: Boolean = true,
 )
 
 /**
@@ -114,6 +117,14 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         productId = BuildConfig.PREMIUM_PRODUCT_ID,
         listener = this,
     )
+    private val speaker = WritingSpeaker(application) { available ->
+        viewModelScope.launch {
+            speechAvailable = available
+            emit()
+        }
+    }
+    private var speechAvailable: Boolean = false
+    private var lastSpokenKey: String? = null
 
     private var screen: WritingScreenKind = WritingScreenKind.Path
     private var openStageId: String? = null
@@ -237,6 +248,20 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         emit()
     }
 
+    fun setAutoPronounce(enabled: Boolean) {
+        progress = progress.copy(autoPronounce = enabled)
+        persist()
+        if (enabled) lastSpokenKey = null else speaker.stop()
+        emit()
+    }
+
+    /** Replays the current prompt. Does not reveal the written form. */
+    fun replayPronunciation() {
+        if (!speechAvailable) return
+        val text = currentPronunciation() ?: return
+        speaker.speak(text)
+    }
+
     fun dismissIntro() {
         showIntro = false
         progress = progress.copy(introSeen = true)
@@ -251,6 +276,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
 
     fun closePractice() {
         transientJob?.cancel()
+        speaker.stop()
+        lastSpokenKey = null
         session = null
         showIntro = false
         screen = if (openStageId != null) WritingScreenKind.Lessons else WritingScreenKind.Path
@@ -581,6 +608,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             introStrokes = glyphs["あ"].orEmpty(),
             uiLanguage = language,
             beginnerMode = progress.beginnerMode,
+            autoPronounce = progress.autoPronounce,
         )
     }
 
@@ -644,6 +672,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             showAnswer = current.revealedAnswer && step.phase == PracticePhase.Recall,
             userStrokes = current.userStrokes,
             showReference = current.cleared || (current.revealedAnswer && step.phase == PracticePhase.Recall),
+            showSpeaker = speechAvailable,
         )
     }
 
@@ -672,7 +701,35 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun emit() {
-        _ui.value = buildState()
+        val state = buildState()
+        _ui.value = state
+        considerAutoSpeak(state.practice)
+    }
+
+    /**
+     * Speaks the reading when a new prompt appears. Recall still shows only
+     * romaji or the meaning; the written character stays off the canvas.
+     */
+    private fun considerAutoSpeak(practice: PracticeState?) {
+        if (!speechAvailable || !progress.autoPronounce) return
+        if (practice == null || practice.justCleared || practice.sessionComplete) return
+        val key = "${practice.itemIndex}|${practice.phase}|${practice.headline}|${practice.subtitle}"
+        if (key == lastSpokenKey) return
+        val text = currentPronunciation() ?: return
+        lastSpokenKey = key
+        speaker.speak(text)
+    }
+
+    private fun currentPronunciation(): String? {
+        val current = session ?: return null
+        if (current.complete || current.cleared || current.queue.isEmpty()) return null
+        val item = current.items[current.queue.first().itemId] ?: return null
+        return item.pronunciation().ifBlank { null }
+    }
+
+    override fun onCleared() {
+        speaker.release()
+        super.onCleared()
     }
 
     private data class Session(

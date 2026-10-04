@@ -204,6 +204,7 @@ class WritingScreenshotTest {
                     onClose = {},
                     onToggleLessons = {},
                     onBeginnerMode = {},
+                    onAutoPronounce = {},
                     onTolerance = {},
                     onRestore = {},
                     onDebugUnlock = {},
@@ -249,6 +250,8 @@ class WritingScreenshotTest {
         onStroke = {},
         onHint = {},
         onGiveUp = {},
+        onSpeak = {},
+        onAutoPronounce = {},
         onClosePractice = {},
         onDismissNotice = {},
     )

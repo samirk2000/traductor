@@ -74,7 +74,9 @@ data class WritingActions(
     val onStroke: (List<com.arnold.voicetranslator.writing.Vec>) -> Unit,
     val onHint: () -> Unit,
     val onGiveUp: () -> Unit,
+    val onSpeak: () -> Unit,
     val onBeginnerMode: (Boolean) -> Unit,
+    val onAutoPronounce: (Boolean) -> Unit,
     val onClosePractice: () -> Unit,
     val onDismissNotice: () -> Unit,
 )
@@ -109,7 +111,9 @@ fun WritingScreen(
             onOpenSettings = viewModel::openSettings,
             onCloseSettings = viewModel::closeSettings,
             onToggleLessons = viewModel::setWritingLessonsEnabled,
+            onSpeak = viewModel::replayPronunciation,
             onBeginnerMode = viewModel::setBeginnerMode,
+            onAutoPronounce = viewModel::setAutoPronounce,
             onDismissIntro = viewModel::dismissIntro,
             onStroke = viewModel::onStrokeFinished,
             onHint = viewModel::showHint,
@@ -158,6 +162,7 @@ internal fun WritingCourse(
                     onStroke = actions.onStroke,
                     onHint = actions.onHint,
                     onGiveUp = actions.onGiveUp,
+                    onSpeak = actions.onSpeak,
                     onContinue = actions.onClosePractice,
                 )
             }
@@ -179,6 +184,7 @@ internal fun WritingCourse(
                 onClose = actions.onCloseSettings,
                 onToggleLessons = actions.onToggleLessons,
                 onBeginnerMode = actions.onBeginnerMode,
+                onAutoPronounce = actions.onAutoPronounce,
                 onTolerance = actions.onTolerance,
                 onRestore = actions.onRestore,
                 onDebugUnlock = actions.onDebugUnlock,
@@ -605,6 +611,7 @@ internal fun SettingsPage(
     onClose: () -> Unit,
     onToggleLessons: (Boolean) -> Unit,
     onBeginnerMode: (Boolean) -> Unit,
+    onAutoPronounce: (Boolean) -> Unit,
     onTolerance: (StrokeTolerance) -> Unit,
     onRestore: () -> Unit,
     onDebugUnlock: (Boolean) -> Unit,
@@ -665,6 +672,21 @@ internal fun SettingsPage(
             androidx.compose.material3.Switch(
                 checked = state.beginnerMode,
                 onCheckedChange = onBeginnerMode,
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = localized(uiLanguage, R.string.writing_auto_pronounce), color = WritingPalette.onSurface, fontWeight = FontWeight.Medium)
+                Text(
+                    text = localized(uiLanguage, R.string.writing_auto_pronounce_desc),
+                    color = WritingPalette.muted,
+                    fontSize = 13.sp,
+                )
+            }
+            androidx.compose.material3.Switch(
+                checked = state.autoPronounce,
+                onCheckedChange = onAutoPronounce,
             )
         }
         Spacer(Modifier.height(18.dp))

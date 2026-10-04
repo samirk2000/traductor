@@ -30,6 +30,16 @@ data class CourseItem(
 
     fun spokenReading(): String = reading.ifBlank { KanaRomaji.toRomaji(text) }
 
+    /**
+     * Text for Japanese speech. Kana is spoken as written. Kanji uses the
+     * kana reading. This string is only sent to speech; it is not drawn.
+     */
+    fun pronunciation(): String {
+        if (text.isNotEmpty() && text.all { isKana(it) }) return text
+        val kana = kanaReading(reading)
+        return kana.ifBlank { text }
+    }
+
     fun headline(language: UiLanguage): String =
         if (reveal == "hidden") meaning(language) else text
 
@@ -39,6 +49,25 @@ data class CourseItem(
         val gloss = meaning(language)
         return if (gloss == text || gloss.isBlank()) spoken else "$spoken · $gloss"
     }
+}
+
+private fun isKana(ch: Char): Boolean {
+    val code = ch.code
+    return code in 0x3040..0x30FF || ch == '\u30FC' || ch == '\u3005'
+}
+
+/** Keeps the kana in a reading such as "イチ / ひと" and pauses between readings. */
+private fun kanaReading(raw: String): String {
+    val out = StringBuilder()
+    for (ch in raw) {
+        when {
+            isKana(ch) -> out.append(ch)
+            ch == '/' || ch == '・' || ch == '、' || ch == ',' -> {
+                if (out.isNotEmpty() && out.last() != '、') out.append('、')
+            }
+        }
+    }
+    return out.toString().trim('、')
 }
 
 data class CourseLesson(

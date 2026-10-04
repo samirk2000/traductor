@@ -69,6 +69,37 @@ class WritingCourseTest {
     }
 
     @Test
+    fun moderatelyWobblyAndSlightlyOffStrokesPassTheDefaultTolerance() {
+        val stroke = glyphs.getValue("あ")[2]
+        val wobbly = wobble(stroke, body = 10f, ends = 8f, seed = 11)
+        assertEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(wobbly, stroke, StrokeTolerance.Relaxed))
+        val shifted = stroke.map { Vec(it.x + 10f, it.y - 6f) }
+        assertEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(shifted, stroke, StrokeTolerance.Relaxed))
+        val shortened = StrokeMatcher.portion(stroke, 0.9f)
+        assertEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(shortened, stroke, StrokeTolerance.Relaxed))
+        val last = stroke.last()
+        val prev = stroke[stroke.lastIndex - 1]
+        val dx = last.x - prev.x
+        val dy = last.y - prev.y
+        val span = StrokeMatcher.dist(prev, last).coerceAtLeast(1f)
+        val extended = stroke.dropLast(1) + Vec(last.x + dx / span * 12f, last.y + dy / span * 12f)
+        assertEquals(StrokeVerdict.Accepted, StrokeMatcher.evaluate(extended, stroke, StrokeTolerance.Relaxed))
+    }
+
+    @Test
+    fun pronunciationSpeaksKanaAndDoesNotUseTheWrittenAnswerAsTheRecallPrompt() {
+        val kana = CourseItem("a", listOf("あ"), "", "あ", "あ", "glyph")
+        assertEquals("あ", kana.pronunciation())
+        assertEquals("a", kana.spokenReading())
+        val word = CourseItem("mizu", listOf("み", "ず"), "mizu", "agua", "water", "hidden")
+        assertEquals("みず", word.pronunciation())
+        val kanji = CourseItem("one", listOf("一"), "イチ / ひと", "uno", "one", "glyph")
+        assertEquals("イチ、ひと", kanji.pronunciation())
+        val phrase = CourseItem("hi", listOf("お", "は", "よ", "う"), "ohayou", "buenos días", "good morning", "hidden")
+        assertEquals("おはよう", phrase.pronunciation())
+    }
+
+    @Test
     fun relaxedAcceptsAnOffsetStartThatStrictRejects() {
         val stroke = glyphs.getValue("あ").first()
         val shiftedStart = stroke.mapIndexed { index, point ->

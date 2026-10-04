@@ -55,6 +55,8 @@ data class PersistedProgress(
      * Reviews ignore this and stay blank-canvas.
      */
     val beginnerMode: Boolean = false,
+    /** Speak the Japanese reading when a character is shown. */
+    val autoPronounce: Boolean = true,
 )
 
 /**

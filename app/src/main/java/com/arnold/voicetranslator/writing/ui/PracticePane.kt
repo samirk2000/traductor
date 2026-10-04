@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -79,6 +80,7 @@ internal fun WritingPracticePage(
     onStroke: (List<Vec>) -> Unit,
     onHint: () -> Unit,
     onGiveUp: () -> Unit,
+    onSpeak: () -> Unit,
     onContinue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -138,16 +140,31 @@ internal fun WritingPracticePage(
                 modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp),
             )
         }
-        Text(
-            text = state.headline,
-            color = WritingPalette.onSurface,
-            fontSize = if (state.headline.length <= 4) 48.sp else 28.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-        )
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text(
+                text = state.headline,
+                color = WritingPalette.onSurface,
+                fontSize = if (state.headline.length <= 4) 48.sp else 28.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (state.showSpeaker) 48.dp else 0.dp)
+                    .align(Alignment.Center),
+            )
+            if (state.showSpeaker) {
+                IconButton(
+                    onClick = onSpeak,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = localized(uiLanguage, R.string.writing_speak),
+                        tint = WritingPalette.secondary,
+                    )
+                }
+            }
+        }
         Text(
             text = state.subtitle,
             color = WritingPalette.secondary,
