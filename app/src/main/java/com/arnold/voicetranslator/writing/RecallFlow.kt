@@ -2,7 +2,7 @@ package com.arnold.voicetranslator.writing
 
 /**
  * How much of the model stroke is on screen.
- * Recall is a blank canvas. Teach and the correction after a miss use the full guide.
+ * Teach draws the full guide. Fade draws a faint outline. Recall starts blank.
  */
 enum class GuideStyle {
     Full,
@@ -10,12 +10,21 @@ enum class GuideStyle {
     None,
 }
 
+/**
+ * Help shown during a blank-canvas recall, after repeated misses on the same stroke.
+ * Nothing is drawn until [HINT_AFTER_MISTAKES] wrong attempts.
+ */
+enum class RecallAssist {
+    None,
+    Outline,
+    Stroke,
+}
+
 /** One pass over a course item inside a practice session. */
 enum class PracticePhase {
     Teach,
     Fade,
     Recall,
-    Repair,
 }
 
 data class RecallStep(
@@ -32,9 +41,9 @@ data class RecallOutcome(
 
 /**
  * Lesson order: each new item is traced with the guide, then with a faint outline,
- * then recalled from memory in a shuffled mix. A miss inserts a guided correction
- * and brings the item back a few steps later. A lesson is memorized only after
- * [UNAIDED_TO_LEARN] unaided recalls in a row.
+ * then recalled from memory in a shuffled mix. A recall that needed a hint comes
+ * back a few steps later. A lesson is memorized only after [UNAIDED_TO_LEARN]
+ * unaided recalls in a row.
  */
 object RecallFlow {
 
@@ -43,10 +52,20 @@ object RecallFlow {
     const val UNAIDED_TO_LEARN = 2
     const val REQUEUE_GAP = 2
 
+    /** Wrong attempts on the current stroke before any hint is drawn. */
+    const val HINT_AFTER_MISTAKES = 2
+
     fun guideStyle(phase: PracticePhase): GuideStyle = when (phase) {
-        PracticePhase.Teach, PracticePhase.Repair -> GuideStyle.Full
+        PracticePhase.Teach -> GuideStyle.Full
         PracticePhase.Fade -> GuideStyle.Faint
         PracticePhase.Recall -> GuideStyle.None
+    }
+
+    /** 0–1 misses: blank. 2: faint outline and start dot. 3 or more: the stroke, static. */
+    fun assistFor(strokeMistakes: Int): RecallAssist = when {
+        strokeMistakes >= HINT_AFTER_MISTAKES + 1 -> RecallAssist.Stroke
+        strokeMistakes >= HINT_AFTER_MISTAKES -> RecallAssist.Outline
+        else -> RecallAssist.None
     }
 
     fun revealsAnswer(phase: PracticePhase): Boolean = phase != PracticePhase.Recall
@@ -99,17 +118,12 @@ object RecallFlow {
     }
 
     /**
-     * Wrong stroke or give-up during recall. The learner traces the item once with
-     * the guide, then meets it again a few steps later, streak cleared.
+     * The item was finished with a hint or a give-up. It returns later as a recall,
+     * with the streak cleared. There is no extra guided pass.
      */
     fun afterMiss(queue: List<RecallStep>): List<RecallStep> {
-        val current = queue.first()
-        val rest = queue.drop(1)
-        val repair = RecallStep(current.itemId, PracticePhase.Repair, unaidedStreak = 0)
-        val again = RecallStep(current.itemId, PracticePhase.Recall, unaidedStreak = 0)
-        val withRepair = listOf(repair) + rest
-        val at = (1 + REQUEUE_GAP).coerceAtMost(withRepair.size)
-        return withRepair.take(at) + again + withRepair.drop(at)
+        val again = queue.first().copy(phase = PracticePhase.Recall, unaidedStreak = 0)
+        return requeue(queue, again, REQUEUE_GAP)
     }
 
     /** True when every id has been memorized. An empty id list is not a finished lesson. */

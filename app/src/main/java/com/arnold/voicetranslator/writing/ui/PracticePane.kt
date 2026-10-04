@@ -64,6 +64,7 @@ import com.arnold.voicetranslator.writing.GuideStyle
 import com.arnold.voicetranslator.writing.PracticeMode
 import com.arnold.voicetranslator.writing.PracticePhase
 import com.arnold.voicetranslator.writing.PracticeState
+import com.arnold.voicetranslator.writing.RecallAssist
 import com.arnold.voicetranslator.writing.StrokeMatcher
 import com.arnold.voicetranslator.writing.StrokeVerdict
 import com.arnold.voicetranslator.writing.Vec
@@ -90,7 +91,7 @@ internal fun WritingPracticePage(
         (state.itemIndex + glyphFraction) / state.itemCount.coerceAtLeast(1)
     }
     val characterKey = listOf(state.character, state.itemIndex, state.glyphIndex, state.phase)
-    var playToken by remember(characterKey) { mutableIntStateOf(if (state.autoPlay) 1 else 0) }
+    var playToken by remember(characterKey) { mutableIntStateOf(0) }
     var playProgress by remember(characterKey) { mutableFloatStateOf(-1f) }
     LaunchedEffect(playToken, characterKey) {
         if (playToken == 0) {
@@ -129,10 +130,10 @@ internal fun WritingPracticePage(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(top = 10.dp, start = 8.dp),
         )
-        if (state.showRepairNote) {
+        if (state.showAnswer) {
             Text(
-                text = localized(uiLanguage, R.string.writing_repair_note),
-                color = WritingPalette.endDot,
+                text = localized(uiLanguage, R.string.writing_answer_shown),
+                color = WritingPalette.muted,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp),
             )
@@ -177,6 +178,8 @@ internal fun WritingPracticePage(
                     strokes = state.strokes,
                     strokeIndex = state.strokeIndex,
                     guideStyle = state.guideStyle,
+                    recallAssist = state.recallAssist,
+                    showAnswer = state.showAnswer,
                     showHint = state.showHint,
                     error = state.error != null,
                     enabled = !state.justCleared && !state.sessionComplete && playProgress < 0f,
@@ -233,7 +236,7 @@ internal fun WritingPracticePage(
                     Text(text = localized(uiLanguage, R.string.writing_watch_order), fontSize = 14.sp)
                 }
             }
-            if (state.phase == PracticePhase.Fade || state.phase == PracticePhase.Recall) {
+            if (state.phase == PracticePhase.Fade) {
                 Button(
                     onClick = onHint,
                     modifier = Modifier.weight(1f).height(48.dp),
@@ -245,10 +248,7 @@ internal fun WritingPracticePage(
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                 ) {
                     Text(
-                        text = localized(
-                            uiLanguage,
-                            if (state.phase == PracticePhase.Recall) R.string.writing_hint_recall else R.string.writing_teach_stroke,
-                        ),
+                        text = localized(uiLanguage, R.string.writing_teach_stroke),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -336,6 +336,8 @@ private fun KanaDrawingCanvas(
     strokes: List<List<Vec>>,
     strokeIndex: Int,
     guideStyle: GuideStyle,
+    recallAssist: RecallAssist,
+    showAnswer: Boolean,
     showHint: Boolean,
     error: Boolean,
     enabled: Boolean,
@@ -382,13 +384,20 @@ private fun KanaDrawingCanvas(
             },
     ) {
         val strokeWidth = size.minDimension * 0.07f
-        if (guideStyle == GuideStyle.Full) {
+        if (showAnswer || guideStyle == GuideStyle.Full) {
             strokes.forEach { stroke ->
                 drawKanaStroke(stroke, WritingPalette.guide, strokeWidth, size)
             }
         } else if (guideStyle == GuideStyle.Faint) {
             strokes.forEach { stroke ->
                 drawKanaStroke(stroke, WritingPalette.guide.copy(alpha = 0.35f), strokeWidth * 0.55f, size)
+            }
+        } else if (recallAssist != RecallAssist.None && strokeIndex in strokes.indices) {
+            val stroke = strokes[strokeIndex]
+            if (recallAssist == RecallAssist.Outline) {
+                drawKanaStroke(stroke, WritingPalette.guide.copy(alpha = 0.35f), strokeWidth * 0.55f, size)
+            } else {
+                drawKanaStroke(stroke, WritingPalette.guide, strokeWidth, size)
             }
         }
         val done = strokeIndex.coerceIn(0, strokes.size)
@@ -418,11 +427,13 @@ private fun KanaDrawingCanvas(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
         }
-        if (guideStyle != GuideStyle.None && playProgress < 0f && strokeIndex in strokes.indices) {
+        val showStart = playProgress < 0f && strokeIndex in strokes.indices &&
+            (showAnswer || guideStyle != GuideStyle.None || recallAssist == RecallAssist.Outline)
+        if (showStart) {
             val stroke = strokes[strokeIndex]
             val start = kanaOffset(stroke.first(), size)
             drawCircle(WritingPalette.startDot, radius = size.minDimension * 0.028f, center = start)
-            if (guideStyle == GuideStyle.Full) {
+            if (showAnswer || guideStyle == GuideStyle.Full) {
                 val closed = StrokeMatcher.dist(stroke.first(), stroke.last()) < 12f
                 val endPoint = if (closed) {
                     kanaOffset(StrokeMatcher.pointAt(stroke, 0.92f), size)
@@ -440,7 +451,6 @@ private fun PracticePhase.label(uiLanguage: UiLanguage): String = when (this) {
     PracticePhase.Teach -> localized(uiLanguage, R.string.writing_phase_teach)
     PracticePhase.Fade -> localized(uiLanguage, R.string.writing_phase_fade)
     PracticePhase.Recall -> localized(uiLanguage, R.string.writing_phase_recall)
-    PracticePhase.Repair -> localized(uiLanguage, R.string.writing_phase_repair)
 }
 
 @Composable

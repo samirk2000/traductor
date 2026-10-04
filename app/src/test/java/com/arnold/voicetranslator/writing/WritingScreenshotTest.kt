@@ -102,12 +102,12 @@ class WritingScreenshotTest {
     fun mistake() {
         snap("mistake") {
             practiceSnap(
-                headline = "あ",
-                subtitle = "a",
+                headline = "a",
+                subtitle = "",
                 character = "あ",
-                phase = PracticePhase.Repair,
-                guide = GuideStyle.Full,
-                repair = true,
+                phase = PracticePhase.Recall,
+                guide = GuideStyle.None,
+                assist = RecallAssist.Stroke,
             )
         }
     }
@@ -119,7 +119,7 @@ class WritingScreenshotTest {
         character: String,
         phase: PracticePhase,
         guide: GuideStyle,
-        repair: Boolean = false,
+        assist: RecallAssist = RecallAssist.None,
     ) {
         WritingCourse(
             state = WritingUiState(
@@ -143,8 +143,8 @@ class WritingScreenshotTest {
                     justCleared = false,
                     sessionComplete = false,
                     unlockedNext = false,
-                    autoPlay = false,
-                    showRepairNote = repair,
+                    recallAssist = assist,
+                    showAnswer = false,
                 ),
             ),
             uiLanguage = UiLanguage.ES,

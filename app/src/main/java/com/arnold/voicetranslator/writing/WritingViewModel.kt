@@ -69,8 +69,8 @@ data class PracticeState(
     val justCleared: Boolean,
     val sessionComplete: Boolean,
     val unlockedNext: Boolean,
-    val autoPlay: Boolean = false,
-    val showRepairNote: Boolean = false,
+    val recallAssist: RecallAssist = RecallAssist.None,
+    val showAnswer: Boolean = false,
 )
 
 data class WritingUiState(
@@ -256,27 +256,30 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     fun showHint() {
         val current = session ?: return
         if (current.complete || current.cleared || current.queue.isEmpty()) return
-        val phase = current.queue.first().phase
-        if (phase == PracticePhase.Recall) {
-            val item = current.items.getValue(current.queue.first().itemId)
-            if (!current.aided) {
-                val now = System.currentTimeMillis()
-                progress = WritingProgress.withMistake(progress, item.id, now)
-                progress = WritingProgress.withLapse(progress, item.id, now)
-                persist()
-            }
-            session = current.copy(hint = true, aided = true)
-        } else if (phase == PracticePhase.Fade) {
-            session = current.copy(hint = true)
-        }
+        if (current.queue.first().phase != PracticePhase.Fade) return
+        session = current.copy(hint = true)
         emit()
     }
 
+    /** Shows the answer in place. The learner keeps drawing; there is no redo pass. */
     fun giveUp() {
         val current = session ?: return
         if (current.complete || current.cleared || current.queue.isEmpty()) return
         if (current.queue.first().phase != PracticePhase.Recall) return
-        enterRepair(current)
+        if (!current.aided) {
+            val itemId = current.queue.first().itemId
+            val now = System.currentTimeMillis()
+            progress = WritingProgress.withMistake(progress, itemId, now)
+            progress = WritingProgress.withLapse(progress, itemId, now)
+            persist()
+        }
+        session = current.copy(
+            aided = true,
+            revealedAnswer = true,
+            mistakesOnItem = current.mistakesOnItem + if (current.aided) 0 else 1,
+            error = null,
+        )
+        emit()
     }
 
     fun onStrokeFinished(points: List<Vec>) {
@@ -333,7 +336,12 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     private fun acceptStroke(current: Session, glyph: List<List<Vec>>) {
         transientJob?.cancel()
         if (current.strokeIndex < glyph.lastIndex) {
-            session = current.copy(strokeIndex = current.strokeIndex + 1, hint = false, error = null)
+            session = current.copy(
+                strokeIndex = current.strokeIndex + 1,
+                strokeMisses = 0,
+                hint = false,
+                error = null,
+            )
             emit()
             return
         }
@@ -343,6 +351,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             session = current.copy(
                 glyphIndex = current.glyphIndex + 1,
                 strokeIndex = 0,
+                strokeMisses = 0,
                 hint = false,
                 error = null,
             )
@@ -358,11 +367,10 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         val now = System.currentTimeMillis()
         var mastered = current.mastered
         val nextQueue = when (step.phase) {
-            PracticePhase.Teach, PracticePhase.Fade, PracticePhase.Repair ->
-                RecallFlow.afterGuided(current.queue)
+            PracticePhase.Teach, PracticePhase.Fade -> RecallFlow.afterGuided(current.queue)
             PracticePhase.Recall -> {
                 if (current.aided) {
-                    RecallFlow.afterAidedRecall(current.queue)
+                    RecallFlow.afterMiss(current.queue)
                 } else {
                     val required = if (current.mode == PracticeMode.Lesson && !current.beginner) {
                         RecallFlow.UNAIDED_TO_LEARN
@@ -410,11 +418,12 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                     pendingQueue = null,
                     glyphIndex = 0,
                     strokeIndex = 0,
-                    aided = false,
                     hint = false,
                     error = null,
                     cleared = false,
-                    showRepairNote = pending.first().phase == PracticePhase.Repair,
+                    aided = false,
+                    revealedAnswer = false,
+                    strokeMisses = 0,
                     completedAttempts = latest.completedAttempts + 1,
                     mistakesOnItem = 0,
                 )
@@ -441,11 +450,26 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun rejectStroke(current: Session, verdict: StrokeVerdict, countMistake: Boolean) {
-        if (countMistake) {
-            enterRepair(current)
-            return
+        val next = if (countMistake) {
+            val misses = current.strokeMisses + 1
+            val itemId = current.queue.first().itemId
+            val now = System.currentTimeMillis()
+            progress = WritingProgress.withMistake(progress, itemId, now)
+            val needsHint = misses >= RecallFlow.HINT_AFTER_MISTAKES
+            if (needsHint && !current.aided) {
+                progress = WritingProgress.withLapse(progress, itemId, now)
+            }
+            persist()
+            current.copy(
+                strokeMisses = misses,
+                mistakesOnItem = current.mistakesOnItem + 1,
+                aided = current.aided || needsHint,
+                error = verdict,
+            )
+        } else {
+            current.copy(error = verdict)
         }
-        session = current.copy(error = verdict)
+        session = next
         emit()
         transientJob?.cancel()
         transientJob = viewModelScope.launch {
@@ -455,34 +479,6 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             session = latest.copy(error = null)
             emit()
         }
-    }
-
-    private fun enterRepair(current: Session) {
-        val step = current.queue.firstOrNull() ?: return
-        val itemId = step.itemId
-        val now = System.currentTimeMillis()
-        if (!current.aided) {
-            progress = WritingProgress.withMistake(progress, itemId, now)
-            progress = WritingProgress.withLapse(progress, itemId, now)
-            persist()
-        }
-        val queue = if (step.phase == PracticePhase.Recall) {
-            RecallFlow.afterMiss(current.queue)
-        } else {
-            current.queue
-        }
-        session = current.copy(
-            queue = queue,
-            glyphIndex = 0,
-            strokeIndex = 0,
-            aided = false,
-            hint = false,
-            error = null,
-            showRepairNote = true,
-            mistakesOnItem = current.mistakesOnItem + 1,
-            cleared = false,
-        )
-        emit()
     }
 
     private fun beginSession(
@@ -595,6 +591,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                 justCleared = false,
                 sessionComplete = true,
                 unlockedNext = current.unlockedNext,
+                recallAssist = RecallAssist.None,
+                showAnswer = false,
             )
         }
         val character = item.glyphs.getOrNull(current.glyphIndex) ?: return null
@@ -614,16 +612,17 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             itemCount = current.completedAttempts + remaining,
             phase = step.phase,
             guideStyle = RecallFlow.guideStyle(step.phase),
-            showHint = current.hint && step.phase != PracticePhase.Teach,
+            showHint = current.hint && step.phase == PracticePhase.Fade,
             error = current.error,
             justCleared = current.cleared,
             sessionComplete = current.complete,
             unlockedNext = current.unlockedNext,
-            autoPlay = progress.writingLessonsEnabled &&
-                (step.phase == PracticePhase.Teach || step.phase == PracticePhase.Repair) &&
-                current.strokeIndex == 0 &&
-                !current.cleared,
-            showRepairNote = current.showRepairNote && step.phase == PracticePhase.Repair,
+            recallAssist = if (step.phase == PracticePhase.Recall && !current.revealedAnswer) {
+                RecallFlow.assistFor(current.strokeMisses)
+            } else {
+                RecallAssist.None
+            },
+            showAnswer = current.revealedAnswer && step.phase == PracticePhase.Recall,
         )
     }
 
@@ -674,8 +673,9 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         val beginner: Boolean = false,
         val mastered: Set<String> = emptySet(),
         val pendingQueue: List<RecallStep>? = null,
-        val showRepairNote: Boolean = false,
         val completedAttempts: Int = 0,
+        val strokeMisses: Int = 0,
+        val revealedAnswer: Boolean = false,
     )
 
     private companion object {

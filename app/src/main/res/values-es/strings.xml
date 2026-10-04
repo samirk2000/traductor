@@ -149,13 +149,11 @@
     <string name="writing_available">Abierta</string>
     <string name="writing_glyph_progress">Signo %1$d de %2$d</string>
     <string name="writing_teach_stroke">Enseñar el trazo</string>
-    <string name="writing_hint_recall">Pista</string>
     <string name="writing_give_up">No me acuerdo</string>
     <string name="writing_phase_teach">Aprende el trazo</string>
     <string name="writing_phase_fade">Con menos ayuda</string>
     <string name="writing_phase_recall">De memoria</string>
-    <string name="writing_phase_repair">Así se escribe</string>
-    <string name="writing_repair_note">Repásalo una vez con la guía. Volverá en unos pasos.</string>
+    <string name="writing_answer_shown">Así se escribe.</string>
     <string name="writing_beginner">Modo principiante</string>
     <string name="writing_beginner_desc">Mantiene la guía durante la lección. El repaso de hoy sigue siendo de memoria.</string>
     <string name="writing_watch_order">Ver el orden</string>
