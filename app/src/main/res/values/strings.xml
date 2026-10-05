@@ -201,8 +201,6 @@
     <string name="writing_billing_unavailable">Google Play billing is not available right now.</string>
     <string name="writing_billing_pending">The purchase is pending.</string>
     <string name="writing_billing_error">The purchase could not be completed.</string>
-    <string name="writing_debug_unlock">Developer unlock</string>
-    <string name="writing_debug_unlock_desc">Only in this test build. The Play release has no unlock switch.</string>
     <string name="writing_attribution">Strokes from KanjiVG © Ulrich Apel, CC BY-SA 3.0.</string>
     <string name="writing_canvas_cd">Canvas for tracing the character</string>
 </resources>

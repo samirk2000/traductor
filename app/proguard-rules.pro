@@ -17,3 +17,13 @@
 
 # kotlinx.coroutines
 -dontwarn kotlinx.coroutines.**
+
+# Ktor references slf4j, but the Android app does not ship a logger binding.
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# Drop verbose logs from release. R8 removes these calls when the return value is unused.
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+    public static int i(...);
+}

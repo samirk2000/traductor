@@ -1,5 +1,6 @@
 import { Context, Hono } from 'hono'
-import { checkAndIncrementRateLimit } from './ratelimit'
+import { handleVerifyPurchase } from './playPurchase'
+import { checkAndIncrementRateLimit, resolveDailyLimit } from './ratelimit'
 import { translateWithGoogle, type GoogleTargetLang } from './providers/googleTranslate'
 import {
   callConverse,
@@ -15,6 +16,14 @@ type Bindings = {
   RATE_LIMIT_KV: KVNamespace
   GOOGLE_API_KEY: string
   DEEPSEEK_API_KEY: string
+  /** Optional. Positive integer; defaults to 200 when unset. */
+  RATE_LIMIT_PER_DAY?: string
+  /**
+   * Optional Google Cloud service-account JSON used to call the Play
+   * Developer API. When unset, POST /verify-purchase returns
+   * play_verifier_not_configured and the app keeps Play-Billing-only unlock.
+   */
+  PLAY_SERVICE_ACCOUNT_JSON?: string
 }
 
 type AppContext = Context<{ Bindings: Bindings }>
@@ -34,7 +43,11 @@ async function withRateLimit(
   handler: () => Promise<Response>,
 ): Promise<Response> {
   const ip = clientIp(c)
-  const allowed = await checkAndIncrementRateLimit(c.env.RATE_LIMIT_KV, ip)
+  const allowed = await checkAndIncrementRateLimit(
+    c.env.RATE_LIMIT_KV,
+    ip,
+    resolveDailyLimit(c.env.RATE_LIMIT_PER_DAY),
+  )
   if (!allowed) {
     return c.json({ error: 'rate_limit_exceeded' }, 429)
   }
@@ -253,6 +266,36 @@ app.post('/simulate-feedback', (c) =>
     } catch (e) {
       console.error({ route: '/simulate-feedback', status: 500, error: e instanceof Error ? e.message : String(e) })
       return c.json({ error: 'internal_error' }, 500)
+    }
+  }),
+)
+
+/**
+ * POST /verify-purchase
+ * Body: { packageName, productId, purchaseToken }
+ * Confirms a one-time Play purchase with purchases.products.get.
+ * Does not log the token. Rate limited like the other routes.
+ */
+app.post('/verify-purchase', (c) =>
+  withRateLimit(c, async () => {
+    try {
+      const body = await c.req.json<{
+        packageName?: string
+        productId?: string
+        purchaseToken?: string
+      }>()
+      const result = await handleVerifyPurchase(c.env, body)
+      return c.json(result.body, result.status)
+    } catch (e) {
+      console.error({
+        route: '/verify-purchase',
+        status: 500,
+        error: e instanceof Error ? e.message : 'error',
+      })
+      return c.json(
+        { configured: true, owned: false, definitive: false, error: 'internal_error' },
+        500,
+      )
     }
   }),
 )

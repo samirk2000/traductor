@@ -53,32 +53,51 @@ com.arnold.voicetranslator
 
 ## Setup
 
+Online translation does **not** read an API key from the APK. The Android app
+calls the Cloudflare Worker in `worker/`. Google Translate and DeepSeek keys
+are Worker secrets.
+
 1. Open the project in **Android Studio** (Neon / latest stable) and let Gradle
    sync resolve `compileSdk 35`, `AGP 8.5.2`, and Kotlin 2.0.x.
-2. **Provide your DeepSeek API key** so online translation works. Add it to
-   `local.properties` (do not commit it):
+2. From `worker/`, install dependencies and deploy:
 
    ```
-   deepseek.apiKey=sk-xxxxxxxxxxxxxxxx`
+   npm install
+   npx wrangler deploy
    ```
 
-   If no key is provided, the button still works but will show a clear
-   "no API key configured" message; you can still use **offline mode**.
+3. Put the provider keys on the Worker (they are not Gradle properties and
+   they are not written into `BuildConfig`):
 
-3. Run on a device/emulator with:
+   ```
+   npx wrangler secret put GOOGLE_API_KEY
+   npx wrangler secret put DEEPSEEK_API_KEY
+   ```
+
+   Optional daily cap per IP (the code default is 200 when this is unset):
+
+   ```
+   npx wrangler secret put RATE_LIMIT_PER_DAY
+   ```
+
+4. Run on a device/emulator with:
    - Android 7.0 (API 24) or newer,
    - a working microphone and a TTS engine supporting Japanese/Korean
      (Google TTS is bundled with modern devices).
+
+Offline mode (ML Kit) still works with no Worker secrets. The one-time course
+purchase (`premium_unlock`) is confirmed by Play Billing. Server-side
+confirmation needs the Play service account described in
+[docs/SEGURIDAD_SETUP.md](docs/SEGURIDAD_SETUP.md). Until that secret is set,
+`POST /verify-purchase` returns `play_verifier_not_configured` and the app
+keeps the Play-Billing-only unlock.
 
 ## Permissions
 
 Declared in `AndroidManifest.xml` and requested at runtime:
 
 - `RECORD_AUDIO` — microphone capture for STT
-- `INTERNET` + `ACCESS_NETWORK_STATE` — DeepSeek calls and ML Kit model downloads
+- `INTERNET` + `ACCESS_NETWORK_STATE` — Worker calls and ML Kit model downloads
 
-## API key for release builds
-
-The key is compiled into `BuildConfig.DEEPSEEK_API_KEY` from the
-`deepseek.apiKey` Gradle property. For production, consider moving key loading
-to a secure backend or runtime config instead of embedding it in the binary.
+Auto Backup is off (`android:allowBackup="false"`), so course progress and the
+purchase flag are not copied to the user's Google account.

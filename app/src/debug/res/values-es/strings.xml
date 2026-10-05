@@ -2,4 +2,6 @@
 <!-- Spanish devices would otherwise keep the release name from main/values-es. -->
 <resources>
     <string name="app_name" translatable="false">Traductor (Prueba)</string>
+    <string name="writing_debug_unlock">Desbloqueo de desarrollo</string>
+    <string name="writing_debug_unlock_desc">Solo en esta compilación de prueba. La versión de Play no trae este interruptor.</string>
 </resources>

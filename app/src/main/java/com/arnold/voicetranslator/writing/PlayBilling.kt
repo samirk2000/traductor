@@ -2,6 +2,7 @@ package com.arnold.voicetranslator.writing
 
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
@@ -35,7 +36,8 @@ class PlayBilling(
 ) : PurchasesUpdatedListener {
 
     interface Listener {
-        fun onOwned(owned: Boolean)
+        /** [purchaseToken] is set only when Play reports PURCHASED for [productId]. Never log it. */
+        fun onOwned(owned: Boolean, purchaseToken: String?)
         fun onPrice(formatted: String?)
         fun onNotice(notice: BillingNotice)
     }
@@ -103,8 +105,9 @@ class PlayBilling(
     override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
         when (result.responseCode) {
             BillingClient.BillingResponseCode.OK -> {
-                acknowledge(purchases.orEmpty())
-                listener.onOwned(owns(purchases.orEmpty()))
+                val list = purchases.orEmpty()
+                acknowledge(list)
+                listener.onOwned(owns(list), purchasedToken(list))
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> Unit
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
@@ -162,7 +165,7 @@ class PlayBilling(
             val pending = purchases.any { purchase ->
                 productId in purchase.products && purchase.purchaseState == Purchase.PurchaseState.PENDING
             }
-            listener.onOwned(owned)
+            listener.onOwned(owned, purchasedToken(purchases))
             if (report) {
                 listener.onNotice(
                     when {
@@ -179,14 +182,35 @@ class PlayBilling(
         productId in purchase.products && purchase.purchaseState == Purchase.PurchaseState.PURCHASED
     }
 
+    private fun purchasedToken(purchases: List<Purchase>): String? =
+        purchases.firstOrNull { purchase ->
+            productId in purchase.products && purchase.purchaseState == Purchase.PurchaseState.PURCHASED
+        }?.purchaseToken
+
     private fun acknowledge(purchases: List<Purchase>) {
         for (purchase in purchases) {
-            if (productId !in purchase.products) continue
-            if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED || purchase.isAcknowledged) continue
-            val params = AcknowledgePurchaseParams.newBuilder()
-                .setPurchaseToken(purchase.purchaseToken)
-                .build()
-            client.acknowledgePurchase(params) { }
+            acknowledgeOne(purchase, attempt = 0)
         }
+    }
+
+    private fun acknowledgeOne(purchase: Purchase, attempt: Int) {
+        if (productId !in purchase.products) return
+        if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED || purchase.isAcknowledged) return
+        val params = AcknowledgePurchaseParams.newBuilder()
+            .setPurchaseToken(purchase.purchaseToken)
+            .build()
+        client.acknowledgePurchase(params) { result ->
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) return@acknowledgePurchase
+            // Response code only. The purchase token stays out of logcat.
+            Log.w(TAG, "acknowledgePurchase failed code=${result.responseCode} attempt=${attempt + 1}")
+            if (attempt + 1 < MAX_ACK_ATTEMPTS) {
+                acknowledgeOne(purchase, attempt + 1)
+            }
+        }
+    }
+
+    private companion object {
+        const val TAG = "PlayBilling"
+        const val MAX_ACK_ATTEMPTS = 3
     }
 }

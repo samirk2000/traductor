@@ -199,8 +199,6 @@
     <string name="writing_billing_unavailable">La facturación de Google Play no está disponible ahora.</string>
     <string name="writing_billing_pending">La compra está pendiente.</string>
     <string name="writing_billing_error">No se pudo completar la compra.</string>
-    <string name="writing_debug_unlock">Desbloqueo de desarrollo</string>
-    <string name="writing_debug_unlock_desc">Solo en esta compilación de prueba. La versión de Play no trae este interruptor.</string>
     <string name="writing_attribution">Trazos de KanjiVG © Ulrich Apel, licencia CC BY-SA 3.0.</string>
     <string name="writing_canvas_cd">Lienzo para trazar el carácter</string>
 </resources>

@@ -225,7 +225,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             lastSpeechText = null
             offlineVoiceRetryCount = 0
             cancelAutoRetry()
-            Log.d(TAG, "speech onResult: \"$text\"")
             // Fix: this used to immediately clear liveTranscript/partialTranscript
             // here, the instant speech recognition finished — but translation
             // (the /translate or /converse network call) still takes ~1-2s
@@ -961,13 +960,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             text
         }
-        if (correctedText != text) {
-            Log.d(TAG, "translate: Spanish question corrector: \"$text\" -> \"$correctedText\"")
-        }
         val text = correctedText
         lastSpeechText = text
         val currentTarget = targetLang
-        Log.d(TAG, "translate: text=\"$text\" target=$currentTarget isForeignSpeech=$isForeignSpeech offline=${_uiState.value.isOfflineMode}")
 
         _uiState.update {
             it.copy(
@@ -1011,7 +1006,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
-                Log.d(TAG, "translate result: main=\"${result.mainTranslation}\" alternatives=${result.alternatives} replySuggestions=${result.replySuggestions}")
                 onTranslationReady(result, currentTarget, isForeignSpeech)
             } catch (e: ModelNotDownloadedException) {
                 // Specific "modo avión" case: don't just show an error banner,
@@ -1108,12 +1102,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             TargetLanguage.JAPANESE, TargetLanguage.ENGLISH, TargetLanguage.CHINESE -> {
                 val translated = workerApi.translate(text, target.id)
                 val mainTranslation = if (target == TargetLanguage.JAPANESE) {
-                    val romaji = JapaneseRomajiConverter.kanjiToRomaji(translated)
-                    Log.d(
-                        TAG,
-                        "JA_ROMAJI_DEBUG onlineTranslate: input=\"$text\" googleRaw=\"$translated\" romaji=\"$romaji\"",
-                    )
-                    romaji
+                    JapaneseRomajiConverter.kanjiToRomaji(translated)
                 } else {
                     translated
                 }
@@ -1146,13 +1135,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): TranslationResult {
         val translated = workerApi.translate(text, target = destination.id, source = source.id)
         val mainTranslation = if (destination == Language.JAPANESE) {
-            val romaji = JapaneseRomajiConverter.kanjiToRomaji(translated)
-            Log.d(
-                TAG,
-                "JA_ROMAJI_DEBUG onlineTranslateDynamic: input=\"$text\" source=${source.id} " +
-                    "googleRaw=\"$translated\" romaji=\"$romaji\"",
-            )
-            romaji
+            JapaneseRomajiConverter.kanjiToRomaji(translated)
         } else {
             translated
         }
@@ -1192,15 +1175,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // actual Latin-script Japanese reading.
         return result.copy(
             replySuggestions = result.replySuggestions.map { suggestion ->
-                val fixedRomaji = sanitizeJapaneseRomaji(suggestion)
-                if (fixedRomaji != suggestion.romaji) {
-                    Log.d(
-                        TAG,
-                        "JA_ROMAJI_DEBUG conversationTranslate: fixed bad suggestion romaji: " +
-                            "\"${suggestion.romaji}\" -> \"$fixedRomaji\"",
-                    )
-                }
-                suggestion.copy(romaji = fixedRomaji)
+                suggestion.copy(romaji = sanitizeJapaneseRomaji(suggestion))
             },
         )
     }

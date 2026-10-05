@@ -11,3 +11,8 @@ kv_namespaces = [
 # Secrets are NOT set here. Configure them with:
 #   npx wrangler secret put GOOGLE_API_KEY
 #   npx wrangler secret put DEEPSEEK_API_KEY
+#   npx wrangler secret put PLAY_SERVICE_ACCOUNT_JSON
+#
+# Optional daily cap (default in code is 200 when this is unset):
+#   npx wrangler secret put RATE_LIMIT_PER_DAY
+# or a non-secret [vars] entry, e.g. RATE_LIMIT_PER_DAY = "200"

@@ -61,11 +61,9 @@ object JapaneseRomajiConverter {
                 } else {
                     KanaRomaji.toRomajiIfKana(token.surface)
                 }
-                Log.d(TAG, "token surface=\"${token.surface}\" reading=$reading -> romaji=\"$romajiPiece\"")
                 romajiPiece
             }
             val result = romajiTokens.joinToString(" ").replace(Regex("\\s+"), " ").trim()
-            Log.d(TAG, "kanjiToRomaji input=\"$japaneseText\" -> output=\"$result\"")
             result.ifBlank { japaneseText }
         } catch (e: Exception) {
             Log.e(TAG, "Kuromoji tokenize failed, falling back to kana-only conversion", e)

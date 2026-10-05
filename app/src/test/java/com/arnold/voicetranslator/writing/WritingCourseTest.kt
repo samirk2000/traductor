@@ -198,6 +198,148 @@ class WritingCourseTest {
     }
 
     @Test
+    fun serverVerifiedPremiumExpiresOutsideTheGraceWindow() {
+        val now = 10 * Entitlement.PURCHASE_GRACE_MS
+        assertFalse(
+            Entitlement.isPremium(
+                playOwned = true,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = true,
+                verifiedAt = 0L,
+                now = now,
+            ),
+        )
+        assertTrue(
+            Entitlement.isPremium(
+                playOwned = true,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = true,
+                verifiedAt = now - Entitlement.PURCHASE_GRACE_MS,
+                now = now,
+            ),
+        )
+        assertFalse(
+            Entitlement.isPremium(
+                playOwned = true,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = true,
+                verifiedAt = now - Entitlement.PURCHASE_GRACE_MS - 1L,
+                now = now,
+            ),
+        )
+        assertFalse(
+            Entitlement.isPremium(
+                playOwned = false,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = true,
+                verifiedAt = now,
+                now = now,
+            ),
+        )
+        assertTrue(
+            Entitlement.isPremium(
+                playOwned = false,
+                debugUnlock = true,
+                debugBuild = true,
+                purchaseCheckRequired = true,
+                verifiedAt = 0L,
+                now = now,
+            ),
+        )
+    }
+
+    @Test
+    fun purchaseVerificationTrustsPlayUntilTheServerIsConfigured() {
+        val now = 5_000L
+        val stored = PersistedProgress(playPremium = false)
+
+        val fallback = PurchaseVerification.apply(
+            current = stored,
+            playOwned = true,
+            token = "play-token",
+            verdict = ServerPurchaseVerdict.NotConfigured,
+            now = now,
+        )
+        assertTrue(fallback.playPremium)
+        assertFalse(fallback.purchaseCheckRequired)
+        assertEquals("play-token", fallback.purchaseToken)
+        assertTrue(
+            Entitlement.isPremium(
+                fallback.playPremium,
+                fallback.debugUnlock,
+                debugBuild = false,
+                purchaseCheckRequired = fallback.purchaseCheckRequired,
+                verifiedAt = fallback.premiumVerifiedAt,
+                now = now,
+            ),
+        )
+
+        val owned = PurchaseVerification.apply(
+            current = fallback,
+            playOwned = true,
+            token = "play-token",
+            verdict = ServerPurchaseVerdict.Owned,
+            now = now,
+        )
+        assertTrue(owned.purchaseCheckRequired)
+        assertEquals(now, owned.premiumVerifiedAt)
+
+        val offline = PurchaseVerification.apply(
+            current = owned,
+            playOwned = true,
+            token = "play-token",
+            verdict = ServerPurchaseVerdict.Unavailable,
+            now = now + Entitlement.PURCHASE_GRACE_MS,
+        )
+        assertTrue(offline.playPremium)
+        assertEquals(now, offline.premiumVerifiedAt)
+
+        val expired = PurchaseVerification.apply(
+            current = owned,
+            playOwned = true,
+            token = "play-token",
+            verdict = ServerPurchaseVerdict.Unavailable,
+            now = now + Entitlement.PURCHASE_GRACE_MS + 1L,
+        )
+        assertFalse(expired.playPremium)
+
+        val revoked = PurchaseVerification.apply(
+            current = owned,
+            playOwned = true,
+            token = "play-token",
+            verdict = ServerPurchaseVerdict.NotOwned,
+            now = now,
+        )
+        assertFalse(revoked.playPremium)
+        assertTrue(revoked.purchaseCheckRequired)
+        assertEquals(0L, revoked.premiumVerifiedAt)
+        assertFalse(
+            Entitlement.isPremium(
+                playOwned = true,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = revoked.purchaseCheckRequired,
+                verifiedAt = revoked.premiumVerifiedAt,
+                now = now,
+            ),
+        )
+
+        val cleared = PurchaseVerification.apply(
+            current = owned,
+            playOwned = false,
+            token = null,
+            verdict = null,
+            now = now,
+        )
+        assertFalse(cleared.playPremium)
+        assertEquals("", cleared.purchaseToken)
+    }
+
+    @Test
     fun spacedReviewPrefersDueAndMistakes() {
         val stage = course.stage("hira-basic")!!
         val lesson = stage.lessons.first()
@@ -300,9 +442,16 @@ class WritingCourseTest {
             tolerance = StrokeTolerance.Strict.name,
             playPremium = true,
             debugUnlock = false,
+            premiumVerifiedAt = 123L,
+            purchaseToken = "token",
+            purchaseCheckRequired = true,
         )
         val decoded = ProgressCodec.decode(ProgressCodec.encode(original))
         assertEquals(original, decoded)
+        val legacy = ProgressCodec.decode("""{"playPremium":true}""")
+        assertFalse(legacy.purchaseCheckRequired)
+        assertEquals(0L, legacy.premiumVerifiedAt)
+        assertEquals("", legacy.purchaseToken)
         assertEquals(StrokeTolerance.Relaxed, WritingProgress.toleranceOf(PersistedProgress()))
     }
 

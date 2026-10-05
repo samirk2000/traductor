@@ -81,6 +81,34 @@ data class ExplainResponse(
     val explanation: String = "",
 )
 
+/** Body for POST /verify-purchase. The token is not written to logcat. */
+@Serializable
+data class VerifyPurchaseRequest(
+    val packageName: String,
+    val productId: String,
+    val purchaseToken: String,
+)
+
+/** Response from POST /verify-purchase. */
+@Serializable
+data class VerifyPurchaseResponse(
+    val configured: Boolean = true,
+    val owned: Boolean = false,
+    val definitive: Boolean = false,
+    val error: String? = null,
+)
+
+/**
+ * Outcome of a purchase check. [NotConfigured] means the Worker has no
+ * PLAY_SERVICE_ACCOUNT_JSON yet; the app then keeps Play-Billing-only unlock.
+ */
+enum class PurchaseVerifyStatus {
+    NotConfigured,
+    Owned,
+    NotOwned,
+    Unavailable,
+}
+
 /** Error envelope the Worker returns for 4xx/5xx responses, e.g. {"error":"rate_limit_exceeded"}. */
 @Serializable
 data class WorkerErrorResponse(

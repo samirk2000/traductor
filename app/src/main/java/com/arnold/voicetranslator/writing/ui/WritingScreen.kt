@@ -714,23 +714,11 @@ internal fun SettingsPage(
         ) {
             Text(text = localized(uiLanguage, R.string.writing_restore), color = WritingPalette.primary)
         }
-        if (state.debugBuild) {
-            Spacer(Modifier.height(22.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = localized(uiLanguage, R.string.writing_debug_unlock), color = WritingPalette.secondary, fontWeight = FontWeight.Medium)
-                    Text(
-                        text = localized(uiLanguage, R.string.writing_debug_unlock_desc),
-                        color = WritingPalette.muted,
-                        fontSize = 13.sp,
-                    )
-                }
-                androidx.compose.material3.Switch(
-                    checked = state.debugUnlock,
-                    onCheckedChange = onDebugUnlock,
-                )
-            }
-        }
+        DebugUnlockSetting(
+            state = state,
+            uiLanguage = uiLanguage,
+            onDebugUnlock = onDebugUnlock,
+        )
         Spacer(Modifier.height(24.dp))
         Text(
             text = localized(uiLanguage, R.string.writing_attribution),

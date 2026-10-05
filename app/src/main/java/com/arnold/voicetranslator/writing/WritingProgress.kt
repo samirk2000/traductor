@@ -57,17 +57,122 @@ data class PersistedProgress(
     val beginnerMode: Boolean = false,
     /** Speak the Japanese reading when a character is shown. */
     val autoPronounce: Boolean = true,
+    /**
+     * Wall-clock time of the last server confirmation, or 0 when Play Billing
+     * has never been confirmed by POST /verify-purchase.
+     */
+    val premiumVerifiedAt: Long = 0L,
+    /** Last Play purchase token. Sent back to the Worker on the next check. Never logged. */
+    val purchaseToken: String = "",
+    /**
+     * True after the Worker has answered with the verifier configured.
+     * While this is false, a Play PURCHASED result is enough (the service
+     * account is not set up yet). Once true, a prefs flag with no timestamp
+     * does not grant premium.
+     */
+    val purchaseCheckRequired: Boolean = false,
 )
 
 /**
  * Whether paid stages open. The debug switch counts only when the build
  * itself is a debug build, so a release APK has no unlock backdoor.
+ *
+ * After the server has verified a purchase once, premium also requires a
+ * recent [premiumVerifiedAt]. Offline, that timestamp stays valid for
+ * [PURCHASE_GRACE_MS]. A playPremium flag that was never confirmed by the
+ * server does not count once [purchaseCheckRequired] is set.
  */
 object Entitlement {
-    fun isPremium(playOwned: Boolean, debugUnlock: Boolean, debugBuild: Boolean): Boolean =
-        playOwned || (debugBuild && debugUnlock)
+    const val PURCHASE_GRACE_MS = 7L * 24L * 60L * 60L * 1000L
+
+    fun isPremium(
+        playOwned: Boolean,
+        debugUnlock: Boolean,
+        debugBuild: Boolean,
+        purchaseCheckRequired: Boolean = false,
+        verifiedAt: Long = 0L,
+        now: Long = 0L,
+        graceMs: Long = PURCHASE_GRACE_MS,
+    ): Boolean {
+        if (debugBuild && debugUnlock) return true
+        if (!playOwned) return false
+        if (!purchaseCheckRequired) return true
+        if (verifiedAt <= 0L) return false
+        return now - verifiedAt <= graceMs
+    }
 
     fun canOpen(stagePremium: Boolean, premium: Boolean): Boolean = !stagePremium || premium
+}
+
+/** What POST /verify-purchase decided. [NotConfigured] means the Worker secret is unset. */
+enum class ServerPurchaseVerdict {
+    NotConfigured,
+    Owned,
+    NotOwned,
+    Unavailable,
+}
+
+object PurchaseVerification {
+    /**
+     * Folds a Play Billing result and the Worker verdict into stored progress.
+     *
+     * [ServerPurchaseVerdict.NotConfigured] is the explicit fallback for a
+     * Worker that has no PLAY_SERVICE_ACCOUNT_JSON yet: trust Play Billing
+     * and leave [PersistedProgress.purchaseCheckRequired] false, so the app
+     * keeps working before the service account is uploaded. Once the Worker
+     * has answered as configured, a later "not owned" (refund or revoke)
+     * clears premium and a prefs edit without a fresh timestamp cannot turn
+     * it back on.
+     */
+    fun apply(
+        current: PersistedProgress,
+        playOwned: Boolean,
+        token: String?,
+        verdict: ServerPurchaseVerdict?,
+        now: Long,
+    ): PersistedProgress {
+        if (!playOwned) {
+            return current.copy(
+                playPremium = false,
+                purchaseToken = "",
+                premiumVerifiedAt = if (current.purchaseCheckRequired) 0L else current.premiumVerifiedAt,
+            )
+        }
+        val purchaseToken = token?.takeIf { it.isNotBlank() } ?: current.purchaseToken
+        return when (verdict) {
+            null, ServerPurchaseVerdict.NotConfigured -> current.copy(
+                playPremium = true,
+                purchaseToken = purchaseToken,
+            )
+            ServerPurchaseVerdict.Owned -> current.copy(
+                playPremium = true,
+                purchaseToken = purchaseToken,
+                purchaseCheckRequired = true,
+                premiumVerifiedAt = now,
+            )
+            ServerPurchaseVerdict.NotOwned -> current.copy(
+                playPremium = false,
+                purchaseToken = "",
+                purchaseCheckRequired = true,
+                premiumVerifiedAt = 0L,
+            )
+            ServerPurchaseVerdict.Unavailable -> when {
+                !current.purchaseCheckRequired -> current.copy(
+                    playPremium = true,
+                    purchaseToken = purchaseToken,
+                )
+                current.premiumVerifiedAt > 0L &&
+                    now - current.premiumVerifiedAt <= Entitlement.PURCHASE_GRACE_MS -> current.copy(
+                    playPremium = true,
+                    purchaseToken = purchaseToken,
+                )
+                else -> current.copy(
+                    playPremium = false,
+                    purchaseToken = purchaseToken,
+                )
+            }
+        }
+    }
 }
 
 object WritingProgress {

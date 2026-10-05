@@ -5,10 +5,14 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.arnold.voicetranslator.BuildConfig
+import com.arnold.voicetranslator.data.remote.PurchaseVerifyStatus
+import com.arnold.voicetranslator.data.remote.WorkerApiClient
 import com.arnold.voicetranslator.ui.localization.UiLanguage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -117,6 +121,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         productId = BuildConfig.PREMIUM_PRODUCT_ID,
         listener = this,
     )
+    private val purchaseApi = WorkerApiClient()
+    private var verifyJob: Job? = null
     private val speaker = WritingSpeaker(application) { available ->
         viewModelScope.launch {
             speechAvailable = available
@@ -331,10 +337,51 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    override fun onOwned(owned: Boolean) {
-        viewModelScope.launch {
-            if (progress.playPremium == owned) return@launch
-            progress = progress.copy(playPremium = owned)
+    override fun onOwned(owned: Boolean, purchaseToken: String?) {
+        verifyJob?.cancel()
+        verifyJob = viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            if (!owned) {
+                progress = PurchaseVerification.apply(
+                    current = progress,
+                    playOwned = false,
+                    token = null,
+                    verdict = null,
+                    now = now,
+                )
+                persist()
+                emit()
+                return@launch
+            }
+            val token = purchaseToken?.takeIf { it.isNotBlank() } ?: progress.purchaseToken.takeIf { it.isNotBlank() }
+            if (token == null) {
+                // Play says purchased but there is no token to send. Same
+                // fallback as a Worker that has no service account yet.
+                progress = PurchaseVerification.apply(
+                    current = progress,
+                    playOwned = true,
+                    token = null,
+                    verdict = ServerPurchaseVerdict.NotConfigured,
+                    now = now,
+                )
+                persist()
+                emit()
+                return@launch
+            }
+            val verdict = withContext(Dispatchers.IO) {
+                purchaseApi.verifyPurchase(
+                    packageName = BuildConfig.APPLICATION_ID,
+                    productId = BuildConfig.PREMIUM_PRODUCT_ID,
+                    purchaseToken = token,
+                )
+            }.toVerdict()
+            progress = PurchaseVerification.apply(
+                current = progress,
+                playOwned = true,
+                token = token,
+                verdict = verdict,
+                now = System.currentTimeMillis(),
+            )
             persist()
             emit()
         }
@@ -693,8 +740,14 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
 
     private fun learned(): Set<String> = progress.learnedLessonIds.toSet()
 
-    private fun premiumNow(): Boolean =
-        Entitlement.isPremium(progress.playPremium, progress.debugUnlock, BuildConfig.DEBUG)
+    private fun premiumNow(): Boolean = Entitlement.isPremium(
+        playOwned = progress.playPremium,
+        debugUnlock = progress.debugUnlock,
+        debugBuild = BuildConfig.DEBUG,
+        purchaseCheckRequired = progress.purchaseCheckRequired,
+        verifiedAt = progress.premiumVerifiedAt,
+        now = System.currentTimeMillis(),
+    )
 
     private fun persist() {
         store.write(progress)
@@ -728,8 +781,17 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     override fun onCleared() {
+        verifyJob?.cancel()
+        purchaseApi.close()
         speaker.release()
         super.onCleared()
+    }
+
+    private fun PurchaseVerifyStatus.toVerdict(): ServerPurchaseVerdict = when (this) {
+        PurchaseVerifyStatus.NotConfigured -> ServerPurchaseVerdict.NotConfigured
+        PurchaseVerifyStatus.Owned -> ServerPurchaseVerdict.Owned
+        PurchaseVerifyStatus.NotOwned -> ServerPurchaseVerdict.NotOwned
+        PurchaseVerifyStatus.Unavailable -> ServerPurchaseVerdict.Unavailable
     }
 
     private data class Session(
