@@ -11,6 +11,12 @@
 local.properties
 .kotlin/
 
+# Play upload key. Passwords and the keystore never belong in git.
+keystore.properties
+keystore/
+*.jks
+*.keystore
+
 # Unrelated stray files that land in this folder (it's a shared Downloads
 # subfolder) — ignored at the repo root only, doesn't affect app/ resources.
 /*.pdf

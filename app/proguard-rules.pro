@@ -1,6 +1,8 @@
 # Add project specific ProGuard rules here.
 
-# Ktor / CIO
+# Ktor / CIO. The engine is loaded with ServiceLoader, which R8 cannot see
+# from a call site, and AtomicFU updates volatile fields by name.
+-keep class io.ktor.client.engine.** implements io.ktor.client.HttpClientEngineContainer
 -keepclassmembers class io.ktor.** { *; }
 -dontwarn io.ktor.**
 
@@ -14,6 +16,29 @@
 -keepclasseswithmembers class com.arnold.voicetranslator.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+-keepclassmembers class kotlinx.serialization.json.** {
+    *** Companion;
+}
+-keepclasseswithmembers class kotlinx.serialization.json.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepclassmembers public class **$$serializer {
+    private ** descriptor;
+}
+
+# Play Billing. The AAR ships the same consumer rules; keep them here so the
+# AIDL interface, proxy activities, and proto fields survive R8.
+-keep class com.android.vending.billing.** { *; }
+-keepnames class com.android.billingclient.api.ProxyBillingActivity
+-keepnames class com.android.billingclient.api.ProxyBillingActivityV2
+-keepclassmembers class * extends com.google.android.gms.internal.play_billing.zzhk {
+    <fields>;
+}
+
+# Kuromoji loads IPADIC *.bin with Class.getResourceAsStream relative to
+# com.atilika.kuromoji.ipadic.Tokenizer. Renaming that package misses the files.
+-keep class com.atilika.kuromoji.** { *; }
+-dontwarn com.atilika.kuromoji.**
 
 # kotlinx.coroutines
 -dontwarn kotlinx.coroutines.**
