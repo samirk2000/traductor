@@ -190,8 +190,8 @@
     <string name="writing_locked_body">This stage is part of the full course.</string>
     <string name="writing_missing_glyph">This character has no stroke data.</string>
     <string name="writing_paywall_title">Full writing course</string>
-    <string name="writing_paywall_body">Basic hiragana and katakana stay free. The rest of the path is a one-time unlock.</string>
-    <string name="writing_paywall_includes">Voicing marks, combinations, vocabulary, N5 kanji and phrases, with spaced review.</string>
+    <string name="writing_paywall_body">Only the 46 basic hiragana stay free. Katakana and everything after it are a one-time unlock.</string>
+    <string name="writing_paywall_includes">Includes katakana, voicing marks, combinations, vocabulary, N5 kanji and phrases, with spaced review.</string>
     <string name="writing_paywall_price_unknown">One-time purchase on Google Play</string>
     <string name="writing_buy">Unlock</string>
     <string name="writing_restore">Restore purchase</string>

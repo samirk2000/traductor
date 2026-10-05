@@ -46,7 +46,7 @@ class WritingScreenshotTest {
                     dueCount = 4,
                     stages = listOf(
                         stage("hira-basic", "Hiragana básico", "Las 46 sílabas, sin dakuten.", CourseTrack.Kana, premium = false, learned = 3, total = 10),
-                        stage("kata-basic", "Katakana básico", "Las mismas sílabas en katakana.", CourseTrack.Kana, premium = false, learned = 0, total = 10),
+                        stage("kata-basic", "Katakana básico", "Las mismas sílabas en katakana.", CourseTrack.Kana, premium = true, learned = 2, total = 10, locked = true),
                         stage("hira-dakuten", "Hiragana con marca", "Dakuten y handakuten.", CourseTrack.Kana, premium = true, learned = 0, total = 5, locked = true),
                         stage("vocab", "Vocabulario", "Escribe la palabra a partir del significado.", CourseTrack.Words, premium = true, learned = 0, total = 5, locked = true),
                         stage("kanji-n5", "Kanji N5", "Unos 80 kanji de inicio.", CourseTrack.Kanji, premium = true, learned = 0, total = 16, locked = true),

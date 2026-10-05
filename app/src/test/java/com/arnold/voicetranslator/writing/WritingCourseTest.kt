@@ -19,9 +19,15 @@ class WritingCourseTest {
     }
 
     @Test
-    fun curriculumKeepsBasicKanaFreeAndLaterStagesPaid() {
+    fun curriculumKeepsOnlyBasicHiraganaFree() {
         val free = course.stages.filter { !it.premium }
-        assertEquals(listOf("hira-basic", "kata-basic"), free.map { it.id })
+        assertEquals(listOf("hira-basic"), free.map { it.id })
+        val hiragana = course.stage("hira-basic")!!
+        assertEquals(46, hiragana.lessons.sumOf { it.items.size })
+        assertTrue(course.stages.filter { it.id != "hira-basic" }.all { it.premium })
+        assertTrue(course.stage("kata-basic")!!.premium)
+        assertTrue(course.stage("kata-dakuten")!!.premium)
+        assertTrue(course.stage("youon-kata")!!.premium)
         assertTrue(course.stages.any { it.id == "kanji-n5" && it.premium && it.track == CourseTrack.Kanji })
         assertTrue(course.stages.any { it.id == "vocab" && it.premium })
         assertTrue(course.stages.any { it.id == "phrases" && it.premium })
@@ -185,6 +191,31 @@ class WritingCourseTest {
         assertEquals(LessonAccess.Premium, WritingProgress.access(kanji, 0, emptySet(), premium = false))
         assertEquals(LessonAccess.Open, WritingProgress.access(kanji, 0, emptySet(), premium = true))
         assertFalse(WritingProgress.isPlayable(kanji, kanji.lessons[1].id, emptySet(), premium = true))
+    }
+
+    @Test
+    fun finishedKatakanaStaysSavedAndLockedUntilPurchase() {
+        val kata = course.stage("kata-basic")!!
+        val learnedIds = kata.lessons.map { it.id }
+        val progress = learnedIds.fold(PersistedProgress()) { acc, id ->
+            WritingProgress.withLessonLearned(acc, id)
+        }
+        assertEquals(learnedIds, progress.learnedLessonIds)
+        val learned = learnedIds.toSet()
+        assertEquals(LessonAccess.Premium, WritingProgress.access(kata, 0, learned, premium = false))
+        assertFalse(WritingProgress.isPlayable(kata, kata.lessons.first().id, learned, premium = false))
+        val now = 1_000L
+        assertTrue(
+            WritingProgress.dueItems(course, learned, emptyMap(), now, premium = false)
+                .none { item -> kata.lessons.any { lesson -> lesson.items.any { it.id == item.id } } },
+        )
+        assertEquals(learnedIds, progress.learnedLessonIds)
+        assertEquals(LessonAccess.Learned, WritingProgress.access(kata, 0, learned, premium = true))
+        assertTrue(WritingProgress.isPlayable(kata, kata.lessons.first().id, learned, premium = true))
+        assertTrue(
+            WritingProgress.dueItems(course, learned, emptyMap(), now, premium = true)
+                .any { item -> kata.lessons.any { lesson -> lesson.items.any { it.id == item.id } } },
+        )
     }
 
     @Test

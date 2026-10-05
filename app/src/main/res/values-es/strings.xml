@@ -188,8 +188,8 @@
     <string name="writing_locked_body">Esta etapa forma parte del curso completo.</string>
     <string name="writing_missing_glyph">Este carácter no tiene datos de trazo.</string>
     <string name="writing_paywall_title">Curso de escritura completo</string>
-    <string name="writing_paywall_body">El hiragana y el katakana básicos siguen gratis. El resto del camino se abre con una compra única.</string>
-    <string name="writing_paywall_includes">Marcas de voz, combinaciones, vocabulario, kanji N5 y frases, con repaso espaciado.</string>
+    <string name="writing_paywall_body">Solo las 46 sílabas del hiragana básico siguen gratis. El katakana y todo lo que sigue se abren con una compra única.</string>
+    <string name="writing_paywall_includes">Incluye el katakana, las marcas de voz, las combinaciones, el vocabulario, los kanji N5 y las frases, con repaso espaciado.</string>
     <string name="writing_paywall_price_unknown">Compra única en Google Play</string>
     <string name="writing_buy">Desbloquear</string>
     <string name="writing_restore">Restaurar compra</string>
