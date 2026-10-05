@@ -5,7 +5,7 @@
   English (see ui/localization/Localization.kt).
 -->
 <resources>
-    <string name="app_name" translatable="false">Traductor de Voz</string>
+    <string name="app_name" translatable="false">TalkAsia</string>
 
     <!-- Top-level tabs -->
     <string name="tab_translator">Traductor</string>
@@ -201,4 +201,14 @@
     <string name="writing_billing_error">No se pudo completar la compra.</string>
     <string name="writing_attribution">Trazos de KanjiVG © Ulrich Apel, licencia CC BY-SA 3.0.</string>
     <string name="writing_canvas_cd">Lienzo para trazar el carácter</string>
+    <string name="ai_report">Reportar respuesta</string>
+    <string name="ai_report_title">Reportar respuesta</string>
+    <string name="ai_report_reason_offensive">Ofensiva o inapropiada</string>
+    <string name="ai_report_reason_incorrect">Incorrecta</string>
+    <string name="ai_report_reason_other">Otro</string>
+    <string name="ai_report_comment_hint">Comentario (opcional)</string>
+    <string name="ai_report_send">Enviar</string>
+    <string name="ai_report_cancel">Cancelar</string>
+    <string name="ai_report_thanks">Gracias, revisaremos tu reporte</string>
+    <string name="ai_generated_notice">Las respuestas son generadas por IA y pueden contener errores.</string>
 </resources>
