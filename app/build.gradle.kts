@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    id("app.cash.paparazzi") version "1.3.5"
+    id("app.cash.paparazzi") version "2.0.0-alpha02"
 }
 
 // Optional. CI and other machines build an unsigned release bundle.
