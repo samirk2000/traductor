@@ -32,8 +32,8 @@ android {
         applicationId = "com.arnold.voicetranslator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // One-time product created in Play Console. Change the id here and in the console together.
