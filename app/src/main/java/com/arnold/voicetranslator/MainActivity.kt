@@ -82,6 +82,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +111,9 @@ import com.arnold.voicetranslator.ui.MainViewModel
 import com.arnold.voicetranslator.ui.localization.UiLanguage
 import com.arnold.voicetranslator.ui.localization.localized
 import com.arnold.voicetranslator.ui.localization.localizedName
+import com.arnold.voicetranslator.ui.report.AiReportDialog
+import com.arnold.voicetranslator.ui.report.AiReportFlag
+import com.arnold.voicetranslator.ui.report.sendAiContentReport
 import com.arnold.voicetranslator.ui.phrasebook.PhrasebookScreen
 import com.arnold.voicetranslator.writing.WritingViewModel
 import com.arnold.voicetranslator.writing.ui.WritingScreen
@@ -352,6 +356,9 @@ private fun TranslatorScreen(
 ) {
     val context = LocalContext.current
     var permissionRequestStarted by remember { mutableStateOf(false) }
+    var reportAiText by rememberSaveable { mutableStateOf<String?>(null) }
+    val reportThanks = localized(uiLanguage, R.string.ai_report_thanks)
+    val onReportAi: (String) -> Unit = { reportAiText = it }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -461,6 +468,7 @@ private fun TranslatorScreen(
                     onToggleLiveListeningPause = onToggleLiveListeningPause,
                     onTranslateSpanishText = onTranslateSpanishText,
                     onTranslateForeignText = onTranslateJapaneseText,
+                    onReportAi = onReportAi,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -475,6 +483,7 @@ private fun TranslatorScreen(
                     uiLanguage = uiLanguage,
                     onReplay = onReplay,
                     onSuggestionTapped = onSuggestionTapped,
+                    onReportAi = onReportAi,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(if (state.historyList.isNotEmpty()) 0.62f else 1f),
@@ -485,6 +494,7 @@ private fun TranslatorScreen(
                     HistoryFeed(
                         history = state.historyList,
                         uiLanguage = uiLanguage,
+                        onReportAi = onReportAi,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(0.38f),
@@ -544,8 +554,27 @@ private fun TranslatorScreen(
                 livePartialText = state.partialTranscript,
                 uiLanguage = uiLanguage,
                 onExit = onToggleSubtitles,
+                onReportAi = onReportAi,
             )
         }
+    }
+
+    reportAiText?.let { text ->
+        AiReportDialog(
+            aiText = text,
+            uiLanguage = uiLanguage,
+            onDismiss = { reportAiText = null },
+            onSend = { reason, comment ->
+                sendAiContentReport(
+                    context = context,
+                    reason = reason,
+                    comment = comment,
+                    aiText = text,
+                    thanksMessage = reportThanks,
+                )
+                reportAiText = null
+            },
+        )
     }
 
     // "Falta el modelo offline de X. ¿Descargar ~30 MB?" — shown when a
@@ -1051,6 +1080,7 @@ private fun TranslationDisplay(
     uiLanguage: UiLanguage,
     onReplay: () -> Unit,
     onSuggestionTapped: (String) -> Unit,
+    onReportAi: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val result = state.result
@@ -1158,6 +1188,14 @@ private fun TranslationDisplay(
                         lineHeight = 38.sp,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    AiReportFlag(
+                        uiLanguage = uiLanguage,
+                        onClick = {
+                            val native = result.nativeScript
+                                ?.takeIf { it.isNotBlank() && it != result.mainTranslation }
+                            onReportAi(listOfNotNull(result.mainTranslation, native).joinToString("\n"))
+                        },
+                    )
 
                     // Spanish -> foreign direction: also show the native
                     // script (kana/kanji for Japanese, Hangul for Korean)
@@ -1189,6 +1227,7 @@ private fun TranslationDisplay(
                                 showKana = state.isShowKana,
                                 uiLanguage = uiLanguage,
                                 onSuggestionTapped = { romaji -> onSuggestionTapped(romaji) },
+                                onReportAi = onReportAi,
                                 enabled = !state.isSpeaking,
                             )
                         } else {
@@ -1197,6 +1236,7 @@ private fun TranslationDisplay(
                                 uiLanguage = uiLanguage,
                                 targetLanguage = state.targetLanguage,
                                 onSuggestionTapped = onSuggestionTapped,
+                                onReportAi = onReportAi,
                                 enabled = !state.isSpeaking,
                             )
                         }
@@ -1211,11 +1251,18 @@ private fun TranslationDisplay(
                                 )
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                         ) {
-                            Text(
-                                localized(uiLanguage, R.string.alternatives),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    localized(uiLanguage, R.string.alternatives),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                AiReportFlag(
+                                    uiLanguage = uiLanguage,
+                                    onClick = { onReportAi(result.alternatives.joinToString("\n")) },
+                                )
+                            }
                             Spacer(Modifier.size(8.dp))
                             result.alternatives.forEach { alt ->
                                 Text(
@@ -1271,6 +1318,7 @@ private fun ResultSuggestions(
     uiLanguage: UiLanguage,
     targetLanguage: TargetLanguage,
     onSuggestionTapped: (String) -> Unit,
+    onReportAi: (String) -> Unit,
     enabled: Boolean,
 ) {
     if (suggestions.isEmpty()) return
@@ -1301,22 +1349,25 @@ private fun ResultSuggestions(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             suggestions.forEach { suggestion ->
-                SuggestionChip(
-                    onClick = { onSuggestionTapped(suggestion) },
-                    enabled = enabled,
-                    label = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(suggestion, style = MaterialTheme.typography.labelLarge)
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = targetLanguage.localizedName(uiLanguage),
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    },
-                    shape = RoundedCornerShape(20.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SuggestionChip(
+                        onClick = { onSuggestionTapped(suggestion) },
+                        enabled = enabled,
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(suggestion, style = MaterialTheme.typography.labelLarge)
+                                Spacer(Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = targetLanguage.localizedName(uiLanguage),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(20.dp),
+                    )
+                    AiReportFlag(uiLanguage = uiLanguage, onClick = { onReportAi(suggestion) })
+                }
             }
         }
     }
@@ -1333,6 +1384,7 @@ private fun ReplySuggestionCards(
     showKana: Boolean,
     uiLanguage: UiLanguage,
     onSuggestionTapped: (String) -> Unit,
+    onReportAi: (String) -> Unit,
     enabled: Boolean,
 ) {
     if (suggestions.isEmpty()) return
@@ -1363,6 +1415,7 @@ private fun ReplySuggestionCards(
         Column(modifier = Modifier.fillMaxWidth()) {
             suggestions.forEach { suggestion ->
                 val tapKey = suggestion.romaji.ifBlank { suggestion.kana.ifBlank { suggestion.spanish } }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     onClick = { onSuggestionTapped(tapKey) },
                     enabled = enabled,
@@ -1373,7 +1426,7 @@ private fun ReplySuggestionCards(
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     ),
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .padding(bottom = 10.dp),
                 ) {
                     Column(
@@ -1413,6 +1466,18 @@ private fun ReplySuggestionCards(
                             )
                         }
                     }
+                }
+                AiReportFlag(
+                    uiLanguage = uiLanguage,
+                    onClick = {
+                        onReportAi(
+                            listOf(suggestion.kana, suggestion.romaji, suggestion.spanish)
+                                .filter { it.isNotBlank() }
+                                .distinct()
+                                .joinToString("\n"),
+                        )
+                    },
+                )
                 }
             }
         }
@@ -1702,6 +1767,7 @@ private fun ModeMicButton(
 private fun HistoryFeed(
     history: List<TranslationHistoryItem>,
     uiLanguage: UiLanguage,
+    onReportAi: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (history.isEmpty()) return
@@ -1717,14 +1783,18 @@ private fun HistoryFeed(
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(history.size, key = { it }) { index ->
                 val item = history[history.size - 1 - index] // newest first
-                HistoryRow(item)
+                HistoryRow(item, uiLanguage, onReportAi)
             }
         }
     }
 }
 
 @Composable
-private fun HistoryRow(item: TranslationHistoryItem) {
+private fun HistoryRow(
+    item: TranslationHistoryItem,
+    uiLanguage: UiLanguage,
+    onReportAi: (String) -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(14.dp),
@@ -1747,12 +1817,19 @@ private fun HistoryRow(item: TranslationHistoryItem) {
                 )
             }
             Spacer(Modifier.size(4.dp))
-            Text(
-                text = item.translation,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.translation,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                AiReportFlag(
+                    uiLanguage = uiLanguage,
+                    onClick = { onReportAi(item.translation) },
+                )
+            }
         }
     }
 }
@@ -1778,6 +1855,7 @@ private fun SubtitlesOverlay(
     livePartialText: String,
     uiLanguage: UiLanguage,
     onExit: () -> Unit,
+    onReportAi: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     // historyList already includes the latest completed translation the
@@ -1848,6 +1926,8 @@ private fun SubtitlesOverlay(
                             text = item.translation,
                             romaji = item.sourceRomaji?.takeIf { it != item.sourceText } ?: item.sourceText,
                             emphasized = isLatest,
+                            onReportAi = { onReportAi(item.translation) },
+                            uiLanguage = uiLanguage,
                         )
                     }
                     if (showLivePartial) {
@@ -1870,7 +1950,13 @@ private fun SubtitlesOverlay(
 }
 
 @Composable
-private fun SubtitleLine(text: String, romaji: String?, emphasized: Boolean) {
+private fun SubtitleLine(
+    text: String,
+    romaji: String?,
+    emphasized: Boolean,
+    onReportAi: (() -> Unit)? = null,
+    uiLanguage: UiLanguage = UiLanguage.ES,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = text,
@@ -1882,6 +1968,14 @@ private fun SubtitleLine(text: String, romaji: String?, emphasized: Boolean) {
             lineHeight = if (emphasized) 34.sp else 26.sp,
             modifier = Modifier.fillMaxWidth(),
         )
+        if (onReportAi != null) {
+            AiReportFlag(
+                uiLanguage = uiLanguage,
+                onClick = onReportAi,
+                tint = Color.White,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        }
         if (!romaji.isNullOrBlank()) {
             Spacer(Modifier.size(4.dp))
             Text(
@@ -1916,6 +2010,7 @@ private fun LiveConversationView(
     onToggleLiveListeningPause: () -> Unit,
     onTranslateSpanishText: (String) -> Unit,
     onTranslateForeignText: (String) -> Unit,
+    onReportAi: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showSpanishDialog by remember { mutableStateOf(false) }
@@ -2043,7 +2138,12 @@ private fun LiveConversationView(
                 contentPadding = PaddingValues(bottom = 4.dp),
             ) {
                 items(messages, key = { it.id }) { entry ->
-                    LiveChatBubble(entry, showKana = state.isShowKana, uiLanguage = uiLanguage)
+                    LiveChatBubble(
+                        entry,
+                        showKana = state.isShowKana,
+                        uiLanguage = uiLanguage,
+                        onReportAi = onReportAi,
+                    )
                 }
             }
         }
@@ -2089,7 +2189,9 @@ private fun LiveConversationView(
                 LiveSuggestionCards(
                     suggestions = suggestions,
                     showKana = state.isShowKana,
+                    uiLanguage = uiLanguage,
                     onSuggestionTapped = onLiveSuggestionTapped,
+                    onReportAi = onReportAi,
                     enabled = !state.isSpeaking,
                 )
             }
@@ -2159,7 +2261,12 @@ private fun LiveConversationView(
 
 /** A single chat bubble: TÚ right-aligned (primary), ELLOS left-aligned. */
 @Composable
-private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean, uiLanguage: UiLanguage) {
+private fun LiveChatBubble(
+    entry: LiveChatEntry,
+    showKana: Boolean,
+    uiLanguage: UiLanguage,
+    onReportAi: (String) -> Unit,
+) {
     val isYou = entry.turn == LiveTurn.YOU
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2211,12 +2318,22 @@ private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean, uiLanguage: 
                     )
                 }
                 Spacer(Modifier.size(4.dp))
-                Text(
-                    entry.translation,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.translation,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AiReportFlag(
+                        uiLanguage = uiLanguage,
+                        onClick = {
+                            val kana = entry.translationKana?.takeIf { it.isNotBlank() && it != entry.translation }
+                            onReportAi(listOfNotNull(entry.translation, kana).joinToString("\n"))
+                        },
+                    )
+                }
                 // Kana/kanji companion for `translation` — shown for the TÚ
                 // turn's own JP output (Google/Kuromoji Romaji) so a native
                 // speaker can read the original script too, gated by the same
@@ -2244,7 +2361,9 @@ private fun LiveChatBubble(entry: LiveChatEntry, showKana: Boolean, uiLanguage: 
 private fun LiveSuggestionCards(
     suggestions: List<com.arnold.voicetranslator.data.model.ReplySuggestion>,
     showKana: Boolean,
+    uiLanguage: UiLanguage,
     onSuggestionTapped: (String) -> Unit,
+    onReportAi: (String) -> Unit,
     enabled: Boolean,
 ) {
     suggestions.take(3).forEach { suggestion ->
@@ -2253,6 +2372,7 @@ private fun LiveSuggestionCards(
         // reading), never leave the card with nothing tappable/speakable —
         // fall back to the kana/native script, then the Spanish meaning.
         val tapKey = suggestion.romaji.ifBlank { suggestion.kana.ifBlank { suggestion.spanish } }
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Surface(
             onClick = { onSuggestionTapped(tapKey) },
             enabled = enabled,
@@ -2263,7 +2383,7 @@ private fun LiveSuggestionCards(
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
             ),
             modifier = Modifier
-                .fillMaxWidth()
+                .weight(1f)
                 .padding(bottom = 8.dp),
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -2300,6 +2420,18 @@ private fun LiveSuggestionCards(
                     )
                 }
             }
+        }
+        AiReportFlag(
+            uiLanguage = uiLanguage,
+            onClick = {
+                onReportAi(
+                    listOf(suggestion.kana, suggestion.romaji, suggestion.spanish)
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .joinToString("\n"),
+                )
+            },
+        )
         }
     }
 }

@@ -81,6 +81,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arnold.voicetranslator.ui.localization.UiLanguage
+import com.arnold.voicetranslator.ui.localization.localized
+import com.arnold.voicetranslator.ui.report.AiReportDialog
+import com.arnold.voicetranslator.ui.report.AiReportFlag
+import com.arnold.voicetranslator.ui.report.sendAiContentReport
+import com.arnold.voicetranslator.R
 
 /**
  * Standalone screen for "Modo Simulación" (Simulation Mode).
@@ -147,6 +152,8 @@ fun SimulationModeScreen(
     // Origen selector), never the scenario/practice language chip.
     val englishUi = appUiLanguage == UiLanguage.EN
     val texts = simCopy(englishUi)
+    var reportText by rememberSaveable { mutableStateOf<String?>(null) }
+    val reportThanks = localized(appUiLanguage, R.string.ai_report_thanks)
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -197,6 +204,13 @@ fun SimulationModeScreen(
                 onSelectLanguage = viewModel::onSelectLanguage,
             )
 
+            Text(
+                text = localized(appUiLanguage, R.string.ai_generated_notice),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp),
+            )
+
             Spacer(Modifier.size(10.dp))
 
             SimulationChatArea(
@@ -204,8 +218,10 @@ fun SimulationModeScreen(
                 isSending = state.isSending,
                 showSlowSendHint = state.showSlowSendHint,
                 onRetrySlowRequest = viewModel::onCancelAndRetrySlowRequest,
+                onReportAi = { reportText = it },
                 language = state.language,
                 englishUi = englishUi,
+                uiLanguage = appUiLanguage,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -226,8 +242,19 @@ fun SimulationModeScreen(
                     scenarioSuggestions(state.scenario, state.language)
                 },
                 englishUi = englishUi,
+                uiLanguage = appUiLanguage,
                 onSuggestionClick = viewModel::onSendSuggestion,
                 onToggleVisible = viewModel::onToggleSuggestions,
+                onReportAi = if (state.dynamicSuggestions.isEmpty()) {
+                    null
+                } else {
+                    { suggestion ->
+                        reportText = listOf(suggestion.native, suggestion.romanized, suggestion.spanish)
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .joinToString("\n")
+                    }
+                },
             )
 
             Spacer(Modifier.size(10.dp))
@@ -297,9 +324,34 @@ fun SimulationModeScreen(
         AlertDialog(
             onDismissRequest = viewModel::onDismissFeedback,
             title = { Text("${texts.yourLevelIn} ${state.language.label(englishUi)}") },
-            text = { Text(feedback, style = MaterialTheme.typography.bodyMedium) },
+            text = {
+                Column {
+                    Text(feedback, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { reportText = feedback }) {
+                        Text(localized(appUiLanguage, R.string.ai_report))
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = viewModel::onDismissFeedback) { Text(texts.close) }
+            },
+        )
+    }
+
+    reportText?.let { text ->
+        AiReportDialog(
+            aiText = text,
+            uiLanguage = appUiLanguage,
+            onDismiss = { reportText = null },
+            onSend = { reason, comment ->
+                sendAiContentReport(
+                    context = context,
+                    reason = reason,
+                    comment = comment,
+                    aiText = text,
+                    thanksMessage = reportThanks,
+                )
+                reportText = null
             },
         )
     }
@@ -546,8 +598,10 @@ private fun SimulationSuggestions(
     visible: Boolean,
     suggestions: List<ScenarioSuggestion>,
     englishUi: Boolean,
+    uiLanguage: UiLanguage,
     onSuggestionClick: (ScenarioSuggestion) -> Unit,
     onToggleVisible: () -> Unit,
+    onReportAi: ((ScenarioSuggestion) -> Unit)?,
 ) {
     val texts = simCopy(englishUi)
     if (!visible) {
@@ -588,16 +642,24 @@ private fun SimulationSuggestions(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             suggestions.forEach { suggestion ->
-                AssistChip(
-                    onClick = { onSuggestionClick(suggestion) },
-                    label = {
-                        Text(
-                            "${suggestion.romanized} (${suggestion.spanish})",
-                            style = MaterialTheme.typography.bodySmall,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AssistChip(
+                        onClick = { onSuggestionClick(suggestion) },
+                        label = {
+                            Text(
+                                "${suggestion.romanized} (${suggestion.spanish})",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        },
+                        modifier = Modifier.height(32.dp),
+                    )
+                    if (onReportAi != null) {
+                        AiReportFlag(
+                            uiLanguage = uiLanguage,
+                            onClick = { onReportAi(suggestion) },
                         )
-                    },
-                    modifier = Modifier.height(32.dp),
-                )
+                    }
+                }
             }
         }
     }
@@ -681,8 +743,10 @@ private fun SimulationChatArea(
     // inline "Reintentar" next to the typing bubble instead.
     showSlowSendHint: Boolean,
     onRetrySlowRequest: () -> Unit,
+    onReportAi: (String) -> Unit,
     language: SimulationLanguage,
     englishUi: Boolean,
+    uiLanguage: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
     val texts = simCopy(englishUi)
@@ -715,7 +779,7 @@ private fun SimulationChatArea(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
-                    SimulationChatBubble(message, englishUi)
+                    SimulationChatBubble(message, englishUi, uiLanguage, onReportAi)
                 }
                 if (isSending) {
                     item(key = "typing") {
@@ -746,7 +810,12 @@ private fun SimulationChatArea(
  * still dedupes for the rare case two of them coincide.
  */
 @Composable
-private fun SimulationChatBubble(message: SimulationMessage, englishUi: Boolean) {
+private fun SimulationChatBubble(
+    message: SimulationMessage,
+    englishUi: Boolean,
+    uiLanguage: UiLanguage,
+    onReportAi: (String) -> Unit,
+) {
     val isUser = message.sender == SimulationSender.USER
     val lines = bubbleLines(message, isUser)
     // Fix: a beginner who wrote something wrong/nonsensical in the practiced
@@ -775,6 +844,13 @@ private fun SimulationChatBubble(message: SimulationMessage, englishUi: Boolean)
                 modifier = Modifier.fillMaxWidth(0.85f),
             ) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    if (!isUser) {
+                        AiReportFlag(
+                            uiLanguage = uiLanguage,
+                            onClick = { onReportAi(lines.joinToString("\n")) },
+                            modifier = Modifier.align(Alignment.End),
+                        )
+                    }
                     lines.forEachIndexed { index, line ->
                         if (index > 0) Spacer(Modifier.size(4.dp))
                         when (index) {
@@ -817,7 +893,19 @@ private fun SimulationChatBubble(message: SimulationMessage, englishUi: Boolean)
             }
             if (showCorrection) {
                 Spacer(Modifier.size(4.dp))
-                CorrectionHintBadge(message, englishUi)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CorrectionHintBadge(message, englishUi, modifier = Modifier.weight(1f, fill = false))
+                    AiReportFlag(
+                        uiLanguage = uiLanguage,
+                        onClick = {
+                            onReportAi(
+                                listOf(message.correctionNative, message.correctionSpanish)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString("\n"),
+                            )
+                        },
+                    )
+                }
             }
         }
     }
@@ -830,12 +918,16 @@ private fun SimulationChatBubble(message: SimulationMessage, englishUi: Boolean)
  * as a helpful tip, not an error.
  */
 @Composable
-private fun CorrectionHintBadge(message: SimulationMessage, englishUi: Boolean) {
+private fun CorrectionHintBadge(
+    message: SimulationMessage,
+    englishUi: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val texts = simCopy(englishUi)
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = Color(0xFF7A5B00).copy(alpha = 0.25f),
-        modifier = Modifier.fillMaxWidth(0.85f),
+        modifier = modifier,
     ) {
         Text(
             text = buildString {
