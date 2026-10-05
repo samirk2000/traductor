@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug launcher name. Overrides main for every locale that falls back to default. -->
+<resources>
+    <string name="app_name" translatable="false">Traductor (Prueba)</string>
+    <string name="writing_debug_unlock">Developer unlock</string>
+    <string name="writing_debug_unlock_desc">Only in this test build. The Play release has no unlock switch.</string>
+</resources>

@@ -2,11 +2,13 @@
   "name": "voice-translator-proxy",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Cloudflare Worker proxy for the Voice Translator app: /translate (Google Cloud Translation) and /explain (DeepSeek, mode=converse|explain). Keeps API keys server-side and rate-limits per IP.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "node --experimental-strip-types --test test/*.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

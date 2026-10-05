@@ -111,6 +111,8 @@ import com.arnold.voicetranslator.ui.localization.UiLanguage
 import com.arnold.voicetranslator.ui.localization.localized
 import com.arnold.voicetranslator.ui.localization.localizedName
 import com.arnold.voicetranslator.ui.phrasebook.PhrasebookScreen
+import com.arnold.voicetranslator.writing.WritingViewModel
+import com.arnold.voicetranslator.writing.ui.WritingScreen
 import com.arnold.voicetranslator.ui.state.LiveChatEntry
 import com.arnold.voicetranslator.ui.state.LiveTurn
 import com.arnold.voicetranslator.ui.state.ModelDownloadStatus
@@ -211,6 +213,15 @@ class MainActivity : ComponentActivity() {
                                     appUiLanguage = uiLanguage,
                                 )
                             }
+
+                            AppTab.WRITING -> {
+                                val writingViewModel: WritingViewModel = viewModel()
+                                WritingScreen(
+                                    viewModel = writingViewModel,
+                                    uiLanguage = uiLanguage,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                     }
                 }
@@ -259,6 +270,7 @@ private enum class AppTab {
     TRANSLATOR,
     PHRASEBOOK,
     SIMULATION,
+    WRITING,
 }
 
 @Composable
@@ -266,6 +278,7 @@ private fun AppTab.label(uiLanguage: UiLanguage): String = when (this) {
     AppTab.TRANSLATOR -> localized(uiLanguage, R.string.tab_translator)
     AppTab.PHRASEBOOK -> localized(uiLanguage, R.string.tab_phrasebook)
     AppTab.SIMULATION -> localized(uiLanguage, R.string.tab_simulation)
+    AppTab.WRITING -> localized(uiLanguage, R.string.tab_writing)
 }
 
 @Composable

@@ -310,7 +310,6 @@ class SpeechRecognitionManager(private val context: Context) {
 
         override fun onResults(result: Bundle?) {
             val matches = extractResults(result)
-            Log.d(TAG, "onResults matches=${matches}")
             pendingResults.clear()
             onResult(matches.lastOrNull() ?: "")
             onEnd()
@@ -318,9 +317,6 @@ class SpeechRecognitionManager(private val context: Context) {
 
         override fun onPartialResults(partialResults: Bundle?) {
             val matches = extractResults(partialResults)
-            if (matches.isNotEmpty()) {
-                Log.d(TAG, "onPartialResults matches=${matches}")
-            }
             pendingResults.clear()
             pendingResults.addAll(matches)
             matches.lastOrNull()?.let { onPartialResult(it) }

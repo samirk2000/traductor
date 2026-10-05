@@ -3,3 +3,8 @@
 # keys in a committed file.
 GOOGLE_API_KEY=your-google-cloud-translation-api-key
 DEEPSEEK_API_KEY=your-deepseek-api-key
+# Requests per IP per UTC day. Omit to use the code default (200).
+RATE_LIMIT_PER_DAY=200
+# Single-line service-account JSON. Leave unset to exercise the
+# play_verifier_not_configured fallback (the app then trusts Play Billing).
+# PLAY_SERVICE_ACCOUNT_JSON={"type":"service_account","client_email":"...","private_key":"..."}

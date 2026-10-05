@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("app.cash.paparazzi") version "1.3.5"
 }
 
 android {
@@ -21,6 +22,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // One-time product created in Play Console. Change the id here and in the console together.
+        buildConfigField("String", "PREMIUM_PRODUCT_ID", "\"premium_unlock\"")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -37,6 +40,9 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // Install next to the Play Store release (same id, Google signature).
+            // namespace stays com.arnold.voicetranslator; only the install id changes.
+            applicationIdSuffix = ".debug"
         }
     }
     compileOptions {
@@ -89,6 +95,9 @@ dependencies {
 
     implementation(libs.mlkit.translate)
     implementation(libs.kuromoji.ipadic)
+    implementation(libs.billing)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation("junit:junit:4.13.2")
 }

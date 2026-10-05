@@ -369,6 +369,53 @@ class WorkerApiClient {
         return "…$tail (len=${text.length})"
     }
 
+    /**
+     * POST /verify-purchase. Does not throw for the "verifier not configured"
+     * response: that status is [PurchaseVerifyStatus.NotConfigured], and the
+     * caller keeps the Play-Billing-only unlock until the service account
+     * secret is uploaded. Network failures and non-definitive Worker errors
+     * are [PurchaseVerifyStatus.Unavailable] so a recent confirmation can
+     * stay valid offline. The purchase token is not logged.
+     */
+    suspend fun verifyPurchase(
+        packageName: String,
+        productId: String,
+        purchaseToken: String,
+    ): PurchaseVerifyStatus {
+        return try {
+            val response = client.post("$BASE_URL/verify-purchase") {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    VerifyPurchaseRequest(
+                        packageName = packageName,
+                        productId = productId,
+                        purchaseToken = purchaseToken,
+                    ),
+                )
+                timeout {
+                    requestTimeoutMillis = 15_000
+                    connectTimeoutMillis = 15_000
+                    socketTimeoutMillis = 15_000
+                }
+            }
+            val parsed = runCatching {
+                strictJson.decodeFromString<VerifyPurchaseResponse>(response.bodyAsText())
+            }.getOrNull()
+            when {
+                parsed?.configured == false || parsed?.error == "play_verifier_not_configured" ->
+                    PurchaseVerifyStatus.NotConfigured
+                parsed?.owned == true -> PurchaseVerifyStatus.Owned
+                parsed?.definitive == true && response.status.isSuccess() -> PurchaseVerifyStatus.NotOwned
+                else -> PurchaseVerifyStatus.Unavailable
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "verify-purchase failed: ${maskTail(e.message)}")
+            PurchaseVerifyStatus.Unavailable
+        }
+    }
+
     /** Releases the underlying HTTP client and its connection pool. */
     fun close() {
         runCatching { client.close() }
