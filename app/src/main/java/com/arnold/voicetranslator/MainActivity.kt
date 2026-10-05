@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -152,15 +153,18 @@ class MainActivity : ComponentActivity() {
                 // or any of its internal logic.
                 var selectedTab by remember { mutableStateOf(AppTab.TRANSLATOR) }
 
-                // Consume the status-bar inset here (once) so it isn't
-                // applied a second time by TranslatorScreen's own internal
-                // `.statusBarsPadding()` call below — keeps the existing
-                // "en vivo"/"subtítulos" layout pixel-identical to before.
+                // API 36 enforces edge-to-edge and ignores
+                // windowOptOutEdgeToEdgeEnforcement. Consume status and
+                // navigation insets once so every tab (including Fraseario
+                // and Simulación, which do not pad themselves) stays clear
+                // of the bars, without stacking on screens that also call
+                // statusBarsPadding or navigationBarsPadding.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
-                        .consumeWindowInsets(WindowInsets.statusBars),
+                        .navigationBarsPadding()
+                        .consumeWindowInsets(WindowInsets.systemBars),
                 ) {
                     AppTabBar(selected = selectedTab, uiLanguage = uiLanguage, onSelect = { selectedTab = it })
 

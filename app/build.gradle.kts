@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    id("app.cash.paparazzi") version "1.3.5"
+    id("app.cash.paparazzi") version "2.0.0-alpha02"
 }
 
 // Optional. CI and other machines build an unsigned release bundle.
@@ -22,7 +22,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.arnold.voicetranslator"
-    compileSdk = 35
+    compileSdk = 36
 
     // No API keys of any kind are read or embedded here anymore. All online
     // translation (Google Translate + DeepSeek) is proxied through our own
@@ -31,9 +31,9 @@ android {
     defaultConfig {
         applicationId = "com.arnold.voicetranslator"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 10
-        versionName = "1.1.0"
+        targetSdk = 36
+        versionCode = 11
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // One-time product created in Play Console. Change the id here and in the console together.

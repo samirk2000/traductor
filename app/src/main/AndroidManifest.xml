@@ -20,7 +20,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.VoiceTranslator"
-        tools:targetApi="35">
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="36">
 
         <activity
             android:name=".MainActivity"
