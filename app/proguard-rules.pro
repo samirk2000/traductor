@@ -31,7 +31,7 @@
 -keep class com.android.vending.billing.** { *; }
 -keepnames class com.android.billingclient.api.ProxyBillingActivity
 -keepnames class com.android.billingclient.api.ProxyBillingActivityV2
--keepclassmembers class * extends com.google.android.gms.internal.play_billing.zzhk {
+-keepclassmembers class * extends com.google.android.gms.internal.play_billing.zzfu {
     <fields>;
 }
 

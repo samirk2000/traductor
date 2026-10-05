@@ -13,6 +13,7 @@ import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
+import com.android.billingclient.api.QueryProductDetailsResult
 import com.android.billingclient.api.QueryPurchasesParams
 
 /** What the billing client wants the UI to say after a purchase or restore. */
@@ -47,6 +48,7 @@ class PlayBilling(
         .enablePendingPurchases(
             PendingPurchasesParams.newBuilder().enableOneTimeProducts().build(),
         )
+        .enableAutoServiceReconnection()
         .build()
 
     fun connect() {
@@ -93,8 +95,8 @@ class PlayBilling(
             )
             .build()
         client.queryProductDetailsAsync(params) { result, details ->
-            val product = details.firstOrNull()
-            if (result.responseCode != BillingClient.BillingResponseCode.OK || product == null) {
+            val product = fetchedProduct(result, details)
+            if (product == null) {
                 listener.onNotice(BillingNotice.Unavailable)
                 return@queryProductDetailsAsync
             }
@@ -119,14 +121,13 @@ class PlayBilling(
     }
 
     private fun launch(activity: Activity, product: ProductDetails) {
+        val details = BillingFlowParams.ProductDetailsParams.newBuilder()
+            .setProductDetails(product)
+        // PBL 8 identifies the one-time offer with a token. The backwards-compatible
+        // offer is the same single product this flow already sold.
+        oneTimeOffer(product)?.offerToken?.let(details::setOfferToken)
         val flow = BillingFlowParams.newBuilder()
-            .setProductDetailsParamsList(
-                listOf(
-                    BillingFlowParams.ProductDetailsParams.newBuilder()
-                        .setProductDetails(product)
-                        .build(),
-                ),
-            )
+            .setProductDetailsParamsList(listOf(details.build()))
             .build()
         val result = client.launchBillingFlow(activity, flow)
         if (result.responseCode != BillingClient.BillingResponseCode.OK) {
@@ -147,9 +148,22 @@ class PlayBilling(
             .build()
         client.queryProductDetailsAsync(params) { result, details ->
             if (result.responseCode != BillingClient.BillingResponseCode.OK) return@queryProductDetailsAsync
-            listener.onPrice(details.firstOrNull()?.oneTimePurchaseOfferDetails?.formattedPrice)
+            listener.onPrice(fetchedProduct(result, details)?.let(::oneTimeOffer)?.formattedPrice)
         }
     }
+
+    /** Successfully fetched product, or null when Play left it in [QueryProductDetailsResult.getUnfetchedProductList]. */
+    private fun fetchedProduct(
+        result: BillingResult,
+        details: QueryProductDetailsResult,
+    ): ProductDetails? {
+        if (result.responseCode != BillingClient.BillingResponseCode.OK) return null
+        return details.productDetailsList.firstOrNull()
+    }
+
+    private fun oneTimeOffer(product: ProductDetails): ProductDetails.OneTimePurchaseOfferDetails? =
+        product.oneTimePurchaseOfferDetails
+            ?: product.oneTimePurchaseOfferDetailsList?.firstOrNull()
 
     private fun queryOwned(report: Boolean) {
         val params = QueryPurchasesParams.newBuilder()
