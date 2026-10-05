@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es-419">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad – TalkAsia: Japonés y Coreano</title>
+<meta name="description" content="Política de privacidad de la app TalkAsia: Japonés y Coreano para Android.">
+<style>
+  :root { --text:#1f2933; --muted:#52606d; --accent:#c2185b; --bg:#ffffff; --soft:#f5f7fa; --border:#e4e7eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+         color:var(--text); background:var(--bg); line-height:1.65; font-size:17px; }
+  main { max-width:760px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:1.7rem; line-height:1.25; margin:0 0 6px; }
+  h2 { font-size:1.2rem; margin:34px 0 8px; padding-top:14px; border-top:1px solid var(--border); color:var(--accent); }
+  h3 { font-size:1.02rem; margin:18px 0 4px; }
+  p, li { margin:0 0 10px; }
+  ul { padding-left:22px; }
+  .meta { color:var(--muted); font-size:.95rem; }
+  .box { background:var(--soft); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin:16px 0; }
+  .ph { background:#fff3bf; padding:0 4px; border-radius:4px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:.95rem; margin:10px 0 16px; }
+  th, td { border:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; }
+  th { background:var(--soft); }
+  .table-wrap { overflow-x:auto; }
+  a { color:var(--accent); }
+  footer { margin-top:40px; color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<main>
+
+
+<h1>Política de privacidad de TalkAsia</h1>
+<p class="meta">App: <strong>TalkAsia: Japonés y Coreano</strong> (Android, <code>com.arnold.voicetranslator</code>)<br>
+Responsable: <strong>Arnold Samir Hernandez</strong>, desarrollador independiente, México<br>
+Fecha de entrada en vigor: 4 de octubre de 2026</p>
+
+<div class="box">
+<strong>Resumen rápido</strong>
+<ul>
+  <li>No necesitas crear una cuenta ni iniciar sesión.</li>
+  <li>No hay anuncios ni herramientas de publicidad, y no vendemos tus datos.</li>
+  <li>El texto que dices o escribes se envía de forma cifrada para traducirlo o generar respuestas; nuestro servidor no lo guarda.</li>
+  <li>Tu progreso de escritura se guarda solo en tu teléfono.</li>
+</ul>
+</div>
+
+<h2>1. Quién es responsable de tus datos</h2>
+<p>Esta política explica qué datos maneja la app TalkAsia: Japonés y Coreano (“la app”), para qué y con quién. El responsable es Arnold Samir Hernandez, con domicilio en México. Puedes contactarme en <a href="mailto:samirblancohernandez@gmail.com">samirblancohernandez@gmail.com</a>.</p>
+
+<h2>2. Qué datos se usan y para qué</h2>
+
+<h3>a) Micrófono y reconocimiento de voz</h3>
+<p>La app pide permiso para usar el micrófono (<code>RECORD_AUDIO</code>) solo para convertir tu voz en texto cuando tú activas esa función. El reconocimiento de voz lo realiza el servicio de reconocimiento de voz del sistema Android de tu teléfono (normalmente proporcionado por Google), que procesa el audio según sus propias condiciones y políticas de privacidad. La app recibe únicamente el texto resultante. El desarrollador no recibe ni guarda tus grabaciones de voz. Puedes negar o retirar el permiso de micrófono en cualquier momento desde los ajustes de Android y escribir el texto en su lugar.</p>
+
+<h3>b) Texto para traducir y conversaciones con IA</h3>
+<p>El texto que dices o escribes en el Traductor, y los mensajes que escribes en la Simulación, se envían mediante una conexión cifrada (HTTPS) al servidor de la app, que funciona en Cloudflare Workers. Desde ahí se envían a Google Cloud Translation (para traducir) y a DeepSeek (para traducir y generar respuestas y retroalimentación de la IA). Se usan únicamente para darte la traducción o la respuesta. <strong>Nuestro servidor no almacena el texto de tus traducciones ni conversaciones.</strong> Los proveedores pueden procesar y conservar temporalmente los datos conforme a sus propios términos.</p>
+<p><strong>Te recomendamos no escribir ni decir datos personales sensibles</strong> (por ejemplo, datos de salud, financieros, contraseñas o información de terceros) en la app.</p>
+
+<h3>c) Dirección IP (prevención de abusos)</h3>
+<p>Para evitar abusos del servicio, el servidor usa tu dirección IP de forma temporal para llevar un contador diario de solicitudes (almacenado en Cloudflare KV). Este contador expira automáticamente cada día. La IP no se usa para identificarte, ubicarte, hacer publicidad ni para ningún otro fin.</p>
+
+<h3>d) Compras dentro de la app</h3>
+<p>Si compras el desbloqueo Premium (<code>premium_unlock</code>), el pago lo procesa Google Play. La app nunca ve los datos de tu tarjeta ni de tu método de pago. Para confirmar que la compra es válida, la app envía el <em>token de compra</em> a nuestro servidor, que lo verifica con Google Play. El resultado de esa verificación se guarda en caché aproximadamente 10 minutos y después se elimina.</p>
+
+<h3>e) Progreso de aprendizaje</h3>
+<p>Tu progreso en “Aprende a escribir” (lecciones, repasos y ajustes) se guarda <strong>solo en tu teléfono</strong>. No se envía a nuestro servidor.</p>
+
+<h3>f) Traducción en el dispositivo (ML Kit)</h3>
+<p>La app usa ML Kit de Google para traducción en el dispositivo; los modelos de idioma se descargan desde los servidores de Google. Según la documentación de Google, ML Kit recopila automáticamente datos técnicos para diagnóstico y estadísticas de uso, como información del dispositivo y de la app (modelo, versión del sistema, nombre y versión de la app), identificadores por instalación, métricas de rendimiento, códigos de error e idiomas configurados. Estos datos los maneja Google conforme a sus políticas.</p>
+
+<h3>Lo que la app NO hace</h3>
+<ul>
+  <li>No pide crear cuenta, nombre, correo ni teléfono.</li>
+  <li>No usa tu ubicación.</li>
+  <li>No incluye anuncios, ni SDK de publicidad o de analíticas propias, ni usa el ID de publicidad.</li>
+  <li>No vende ni renta tus datos personales.</li>
+</ul>
+
+<h2>3. Servicios de terceros</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Proveedor</th><th>Para qué</th><th>Datos</th></tr>
+  <tr><td>Servicio de reconocimiento de voz de Android (normalmente Google)</td><td>Convertir voz en texto</td><td>Audio de tu voz mientras hablas</td></tr>
+  <tr><td>Cloudflare (Workers y KV)</td><td>Servidor de la app y límite de uso</td><td>Texto en tránsito, dirección IP (contador diario), token de compra</td></tr>
+  <tr><td>Google Cloud Translation</td><td>Traducción</td><td>Texto a traducir</td></tr>
+  <tr><td>DeepSeek</td><td>Traducción y respuestas de IA en la Simulación</td><td>Texto a traducir y mensajes de la conversación</td></tr>
+  <tr><td>Google Play (Facturación y API de desarrolladores)</td><td>Procesar y verificar compras</td><td>Datos de la compra y token de compra</td></tr>
+  <tr><td>Google ML Kit</td><td>Traducción en el dispositivo y descarga de modelos</td><td>Datos técnicos y de diagnóstico descritos arriba</td></tr>
+</table>
+</div>
+<p>Puedes consultar sus políticas en: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare</a> y <a href="https://www.deepseek.com/">DeepSeek</a> (sección de política de privacidad).</p>
+
+<h2>4. Transferencias internacionales</h2>
+<p>Los proveedores anteriores pueden procesar datos en servidores fuera de México, por ejemplo en Estados Unidos y, en el caso de DeepSeek, en la República Popular China. Al usar las funciones de traducción y simulación, tus datos se transfieren a estos proveedores únicamente para prestarte el servicio.</p>
+
+<h2>5. Conservación de los datos</h2>
+<ul>
+  <li><strong>Texto de traducciones y conversaciones:</strong> nuestro servidor no lo almacena; solo lo procesa para responderte.</li>
+  <li><strong>Contador de uso por IP:</strong> expira diariamente.</li>
+  <li><strong>Verificación de compras:</strong> caché de aproximadamente 10 minutos.</li>
+  <li><strong>Progreso de escritura:</strong> permanece en tu teléfono hasta que borres los datos de la app o la desinstales.</li>
+  <li>Los datos que conserven terceros (Google, Cloudflare, DeepSeek) se rigen por sus propias políticas.</li>
+</ul>
+
+<h2>6. Seguridad</h2>
+<p>Toda la comunicación entre la app y el servidor, y entre el servidor y los proveedores, se cifra en tránsito mediante HTTPS. Ningún sistema es 100 % seguro, pero se aplican medidas razonables para proteger la información.</p>
+
+<h2>7. Niñas, niños y adolescentes</h2>
+<p>La app está dirigida a personas de <strong>13 años o más</strong> y no está diseñada para niñas ni niños. No recopilamos a sabiendas datos personales de menores de 13 años. Si eres madre, padre o tutor y crees que un menor nos proporcionó información, escríbenos a <a href="mailto:samirblancohernandez@gmail.com">samirblancohernandez@gmail.com</a>.</p>
+
+<h2>8. Tus derechos y opciones</h2>
+<ul>
+  <li><strong>Micrófono:</strong> puedes retirar el permiso en Ajustes de Android → Apps → TalkAsia → Permisos.</li>
+  <li><strong>Borrar tus datos locales:</strong> en Ajustes de Android → Apps → TalkAsia → Almacenamiento → “Borrar datos”, o desinstalando la app. Como no hay cuentas y el servidor no guarda tu texto, no existe una cuenta que eliminar.</li>
+  <li><strong>Derechos ARCO:</strong> conforme a la legislación mexicana de protección de datos personales, puedes solicitar el acceso, rectificación, cancelación u oposición respecto de tus datos, o revocar tu consentimiento, escribiendo a <a href="mailto:samirblancohernandez@gmail.com">samirblancohernandez@gmail.com</a>. Responderemos en los plazos que marca la ley. Ten en cuenta que, por el diseño de la app, normalmente no conservamos datos que te identifiquen.</li>
+  <li>Si vives fuera de México, también puedes ejercer los derechos que te otorguen las leyes de tu país.</li>
+</ul>
+
+<h2>9. Cambios a esta política</h2>
+<p>Si esta política cambia, publicaremos la nueva versión en esta misma página con su fecha de entrada en vigor. Si los cambios son importantes, también lo avisaremos dentro de la app o en la ficha de Google Play.</p>
+
+<h2>10. Contacto</h2>
+<p>Arnold Samir Hernandez — México<br>
+Correo: <a href="mailto:samirblancohernandez@gmail.com">samirblancohernandez@gmail.com</a></p>
+
+<footer>
+<p>Créditos: los datos de trazos de kanji y kana provienen de KanjiVG (© Ulrich Apel), licencia CC BY-SA 3.0.</p>
+<p>© 2026 Arnold Samir Hernandez</p>
+</footer>
+</main>
+</body>
+</html>
