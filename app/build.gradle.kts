@@ -32,12 +32,14 @@ android {
         applicationId = "com.arnold.voicetranslator"
         minSdk = 24
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.1.1"
+        versionCode = 12
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // One-time product created in Play Console. Change the id here and in the console together.
         buildConfigField("String", "PREMIUM_PRODUCT_ID", "\"premium_unlock\"")
+        // Personal sideload sets this true. Play release and debug stay false.
+        buildConfigField("boolean", "FORCE_PREMIUM", "false")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -71,6 +73,17 @@ android {
             // Install next to the Play Store release (same id, Google signature).
             // namespace stays com.arnold.voicetranslator; only the install id changes.
             applicationIdSuffix = ".debug"
+        }
+        // Owner sideload. Installs beside the Play app as
+        // com.arnold.voicetranslator.personal, signed with the debug keystore
+        // so it builds without keystore.properties. Release gating is unchanged.
+        create("personal") {
+            isDebuggable = false
+            isMinifyEnabled = false
+            applicationIdSuffix = ".personal"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "FORCE_PREMIUM", "true")
         }
     }
     compileOptions {

@@ -71,11 +71,16 @@ data class PersistedProgress(
      * does not grant premium.
      */
     val purchaseCheckRequired: Boolean = false,
+    /** Lessons finished in Reconocer. Independent of [learnedLessonIds]. */
+    val recognizedLessonIds: List<String> = emptyList(),
+    /** Last path the learner had open: [StudyMode.Strokes] or [StudyMode.Recognize]. */
+    val studyMode: String = StudyMode.Strokes.name,
 )
 
 /**
  * Whether paid stages open. The debug switch counts only when the build
  * itself is a debug build, so a release APK has no unlock backdoor.
+ * [forcePremium] is true only on the personal sideload; Play builds pass false.
  *
  * After the server has verified a purchase once, premium also requires a
  * recent [premiumVerifiedAt]. Offline, that timestamp stays valid for
@@ -93,7 +98,9 @@ object Entitlement {
         verifiedAt: Long = 0L,
         now: Long = 0L,
         graceMs: Long = PURCHASE_GRACE_MS,
+        forcePremium: Boolean = false,
     ): Boolean {
+        if (forcePremium) return true
         if (debugBuild && debugUnlock) return true
         if (!playOwned) return false
         if (!purchaseCheckRequired) return true
@@ -294,6 +301,11 @@ object WritingProgress {
     fun withLessonLearned(progress: PersistedProgress, lessonId: String): PersistedProgress {
         if (lessonId in progress.learnedLessonIds) return progress
         return progress.copy(learnedLessonIds = progress.learnedLessonIds + lessonId)
+    }
+
+    fun withRecognitionLearned(progress: PersistedProgress, lessonId: String): PersistedProgress {
+        if (lessonId in progress.recognizedLessonIds) return progress
+        return progress.copy(recognizedLessonIds = progress.recognizedLessonIds + lessonId)
     }
 
     private fun accessibleItems(course: Course, learned: Set<String>, premium: Boolean): List<CourseItem> {

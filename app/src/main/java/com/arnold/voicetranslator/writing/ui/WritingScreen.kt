@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
@@ -48,8 +49,11 @@ import com.arnold.voicetranslator.writing.CourseTrack
 import com.arnold.voicetranslator.writing.LessonAccess
 import com.arnold.voicetranslator.writing.LessonListState
 import com.arnold.voicetranslator.writing.LessonRow
+import com.arnold.voicetranslator.writing.RecognizePrompt
+import com.arnold.voicetranslator.writing.RecognizeUi
 import com.arnold.voicetranslator.writing.StageCard
 import com.arnold.voicetranslator.writing.StrokeTolerance
+import com.arnold.voicetranslator.writing.StudyMode
 import com.arnold.voicetranslator.writing.WritingNotice
 import com.arnold.voicetranslator.writing.WritingScreenKind
 import com.arnold.voicetranslator.writing.WritingUiState
@@ -79,6 +83,9 @@ data class WritingActions(
     val onAutoPronounce: (Boolean) -> Unit,
     val onClosePractice: () -> Unit,
     val onDismissNotice: () -> Unit,
+    val onStudyMode: (StudyMode) -> Unit,
+    val onRecognizeAnswer: (Int) -> Unit,
+    val onRecognizeAdvance: () -> Unit,
 )
 
 @Composable
@@ -120,6 +127,9 @@ fun WritingScreen(
             onGiveUp = viewModel::giveUp,
             onClosePractice = viewModel::closePractice,
             onDismissNotice = viewModel::dismissNotice,
+            onStudyMode = viewModel::setStudyMode,
+            onRecognizeAnswer = viewModel::answerRecognition,
+            onRecognizeAdvance = viewModel::advanceRecognition,
         ),
     )
 }
@@ -145,6 +155,7 @@ internal fun WritingCourse(
                 onReinforce = actions.onReinforce,
                 onOpenPaywall = actions.onOpenPaywall,
                 onOpenSettings = actions.onOpenSettings,
+                onStudyMode = actions.onStudyMode,
             )
             WritingScreenKind.Lessons -> LessonBrowser(
                 lessons = state.lessons,
@@ -164,6 +175,16 @@ internal fun WritingCourse(
                     onGiveUp = actions.onGiveUp,
                     onSpeak = actions.onSpeak,
                     onContinue = actions.onClosePractice,
+                )
+            }
+            WritingScreenKind.Recognize -> state.recognize?.let { card ->
+                RecognizePage(
+                    card = card,
+                    uiLanguage = uiLanguage,
+                    onClose = actions.onClosePractice,
+                    onAnswer = actions.onRecognizeAnswer,
+                    onAdvance = actions.onRecognizeAdvance,
+                    onSpeak = actions.onSpeak,
                 )
             }
         }
@@ -223,6 +244,7 @@ private fun CoursePath(
     onReinforce: () -> Unit,
     onOpenPaywall: () -> Unit,
     onOpenSettings: () -> Unit,
+    onStudyMode: (StudyMode) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -240,7 +262,14 @@ private fun CoursePath(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = localized(uiLanguage, R.string.writing_path_subtitle),
+                    text = localized(
+                        uiLanguage,
+                        if (state.studyMode == StudyMode.Recognize) {
+                            R.string.writing_recognize_subtitle
+                        } else {
+                            R.string.writing_path_subtitle
+                        },
+                    ),
                     color = WritingPalette.muted,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 4.dp),
@@ -255,25 +284,33 @@ private fun CoursePath(
             }
         }
         Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionCard(
-                title = localized(uiLanguage, R.string.writing_due_review),
-                detail = state.dueCount.toString(),
-                container = WritingPalette.primaryContainer,
-                accent = WritingPalette.primary,
-                enabled = state.dueCount > 0,
-                onClick = onDue,
-                modifier = Modifier.weight(1f),
-            )
-            ActionCard(
-                title = localized(uiLanguage, R.string.writing_reinforce),
-                detail = "",
-                container = WritingPalette.secondaryContainer,
-                accent = WritingPalette.secondary,
-                enabled = state.stages.any { it.learnedCount > 0 && !it.locked },
-                onClick = onReinforce,
-                modifier = Modifier.weight(1f),
-            )
+        StudyModeToggle(
+            selected = state.studyMode,
+            uiLanguage = uiLanguage,
+            onSelect = onStudyMode,
+        )
+        Spacer(Modifier.height(16.dp))
+        if (state.studyMode == StudyMode.Strokes) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ActionCard(
+                    title = localized(uiLanguage, R.string.writing_due_review),
+                    detail = state.dueCount.toString(),
+                    container = WritingPalette.primaryContainer,
+                    accent = WritingPalette.primary,
+                    enabled = state.dueCount > 0,
+                    onClick = onDue,
+                    modifier = Modifier.weight(1f),
+                )
+                ActionCard(
+                    title = localized(uiLanguage, R.string.writing_reinforce),
+                    detail = "",
+                    container = WritingPalette.secondaryContainer,
+                    accent = WritingPalette.secondary,
+                    enabled = state.stages.any { it.learnedCount > 0 && !it.locked },
+                    onClick = onReinforce,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         if (!state.premium) {
             Spacer(Modifier.height(12.dp))
@@ -347,6 +384,242 @@ private fun ActionCard(
         Text(text = title, color = accent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         if (detail.isNotBlank()) {
             Text(text = detail, color = WritingPalette.onSurface, fontSize = 22.sp, fontWeight = FontWeight.Light)
+        }
+    }
+}
+
+@Composable
+private fun StudyModeToggle(
+    selected: StudyMode,
+    uiLanguage: UiLanguage,
+    onSelect: (StudyMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(WritingPalette.surfaceVariant)
+            .padding(4.dp),
+    ) {
+        StudyMode.entries.forEach { mode ->
+            val on = mode == selected
+            val label = localized(
+                uiLanguage,
+                if (mode == StudyMode.Strokes) R.string.writing_mode_strokes else R.string.writing_mode_recognize,
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (on) WritingPalette.primary else Color.Transparent)
+                    .clickable { onSelect(mode) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    color = if (on) Color(0xFF0F1115) else WritingPalette.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecognizePage(
+    card: RecognizeUi,
+    uiLanguage: UiLanguage,
+    onClose: () -> Unit,
+    onAnswer: (Int) -> Unit,
+    onAdvance: () -> Unit,
+    onSpeak: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onClose) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = localized(uiLanguage, R.string.close),
+                    tint = WritingPalette.onSurface,
+                )
+            }
+            Text(
+                text = localized(uiLanguage, R.string.writing_mode_recognize),
+                color = WritingPalette.onSurface,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (card.complete) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = localized(uiLanguage, R.string.writing_recognize_score_title),
+                    color = WritingPalette.onSurface,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = localized(uiLanguage, R.string.writing_recognize_score_body, card.firstTryCorrect, card.total),
+                    color = WritingPalette.secondary,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 28.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(WritingPalette.primary)
+                        .clickable(onClick = onClose)
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = localized(uiLanguage, R.string.writing_continue),
+                        color = Color(0xFF0F1115),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                    )
+                }
+            }
+            return
+        }
+        Text(
+            text = localized(uiLanguage, R.string.writing_recognize_progress, card.index, card.total),
+            color = WritingPalette.muted,
+            fontSize = 13.sp,
+        )
+        LinearProgressIndicator(
+            progress = { card.fraction },
+            modifier = Modifier
+                .padding(top = 8.dp, bottom = 16.dp)
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(CircleShape),
+            color = WritingPalette.primary,
+            trackColor = WritingPalette.surfaceVariant,
+        )
+        Text(
+            text = localized(
+                uiLanguage,
+                if (card.kind == RecognizePrompt.GlyphToReading) {
+                    R.string.writing_recognize_glyph_prompt
+                } else {
+                    R.string.writing_recognize_reading_prompt
+                },
+            ),
+            color = WritingPalette.muted,
+            fontSize = 14.sp,
+        )
+        Row(
+            modifier = Modifier.padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = card.promptText,
+                color = WritingPalette.onSurface,
+                fontSize = if (card.kind == RecognizePrompt.GlyphToReading) 64.sp else 36.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            if (card.showSpeaker) {
+                IconButton(onClick = onSpeak) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = localized(uiLanguage, R.string.writing_speak),
+                        tint = WritingPalette.secondary,
+                    )
+                }
+            }
+        }
+        if (card.hint.isNotBlank()) {
+            Text(text = card.hint, color = WritingPalette.muted, fontSize = 16.sp)
+        }
+        if (card.retry && card.pickedIndex == null) {
+            Text(
+                text = localized(uiLanguage, R.string.writing_recognize_again),
+                color = WritingPalette.primary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+        card.options.forEachIndexed { index, option ->
+            val revealed = card.pickedIndex != null
+            val isAnswer = index == card.answerIndex
+            val isPicked = index == card.pickedIndex
+            val border = when {
+                revealed && isAnswer -> WritingPalette.ok
+                revealed && isPicked -> WritingPalette.error
+                else -> WritingPalette.rail
+            }
+            val background = when {
+                revealed && isAnswer -> WritingPalette.secondaryContainer
+                revealed && isPicked -> Color(0xFF3A2224)
+                else -> WritingPalette.surface
+            }
+            Row(
+                modifier = Modifier
+                    .padding(bottom = 10.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(background)
+                    .border(1.dp, border, RoundedCornerShape(14.dp))
+                    .clickable(enabled = !revealed) { onAnswer(index) }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = option,
+                    color = WritingPalette.onSurface,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (revealed && isAnswer) {
+                    Icon(Icons.Filled.Check, contentDescription = null, tint = WritingPalette.ok)
+                }
+            }
+        }
+        if (card.pickedIndex != null) {
+            Text(
+                text = if (card.pickedIndex == card.answerIndex) {
+                    localized(uiLanguage, R.string.writing_recognize_correct)
+                } else {
+                    localized(uiLanguage, R.string.writing_recognize_wrong, card.options[card.answerIndex])
+                },
+                color = if (card.pickedIndex == card.answerIndex) WritingPalette.ok else WritingPalette.error,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(WritingPalette.primary)
+                    .clickable(onClick = onAdvance)
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = localized(uiLanguage, R.string.writing_recognize_next),
+                    color = Color(0xFF0F1115),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                )
+            }
         }
     }
 }

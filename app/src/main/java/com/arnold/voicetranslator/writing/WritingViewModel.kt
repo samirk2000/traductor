@@ -16,8 +16,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
-enum class WritingScreenKind { Path, Lessons, Practice }
+enum class WritingScreenKind { Path, Lessons, Practice, Recognize }
 
 enum class WritingNotice {
     LessonLocked,
@@ -83,6 +84,23 @@ data class PracticeState(
     val showSpeaker: Boolean = false,
 )
 
+/** One card of the recognition quiz, or the end-of-lesson score. */
+data class RecognizeUi(
+    val kind: RecognizePrompt = RecognizePrompt.GlyphToReading,
+    val promptText: String = "",
+    val hint: String = "",
+    val showSpeaker: Boolean = false,
+    val options: List<String> = emptyList(),
+    val answerIndex: Int = 0,
+    val pickedIndex: Int? = null,
+    val index: Int = 1,
+    val total: Int = 1,
+    val fraction: Float = 0f,
+    val complete: Boolean = false,
+    val firstTryCorrect: Int = 0,
+    val retry: Boolean = false,
+)
+
 data class WritingUiState(
     val screen: WritingScreenKind = WritingScreenKind.Path,
     val writingLessonsEnabled: Boolean = true,
@@ -103,6 +121,8 @@ data class WritingUiState(
     val uiLanguage: UiLanguage = UiLanguage.ES,
     val beginnerMode: Boolean = false,
     val autoPronounce: Boolean = true,
+    val studyMode: StudyMode = StudyMode.Strokes,
+    val recognize: RecognizeUi? = null,
 )
 
 /**
@@ -141,6 +161,11 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     private var priceLabel: String? = null
     private var language: UiLanguage = UiLanguage.ES
     private var session: Session? = null
+    private var recognition: RecognizeRun? = null
+    private var recognitionLessonId: String? = null
+    private var recognitionLessonIds: Set<String> = emptySet()
+    private var recognitionSeenIds: Set<String> = emptySet()
+    private val recognitionRandom = Random(System.currentTimeMillis())
     private var transientJob: Job? = null
 
     private val _ui = MutableStateFlow(buildState())
@@ -179,13 +204,47 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             emit()
             return
         }
-        if (!WritingProgress.isPlayable(stage, lessonId, learned(), premiumNow())) {
+        val learnedNow = if (studyMode() == StudyMode.Recognize) recognized() else learned()
+        if (!WritingProgress.isPlayable(stage, lessonId, learnedNow, premiumNow())) {
             notice = WritingNotice.LessonLocked
             emit()
             return
         }
         val lesson = stage.lessons.firstOrNull { it.id == lessonId } ?: return
+        if (studyMode() == StudyMode.Recognize) {
+            beginRecognition(lesson)
+            return
+        }
         beginSession(stage.id, lesson.id, PracticeMode.Lesson, lesson.items)
+    }
+
+    fun setStudyMode(mode: StudyMode) {
+        if (studyMode() == mode) return
+        progress = progress.copy(studyMode = mode.name)
+        persist()
+        emit()
+    }
+
+    fun answerRecognition(index: Int) {
+        val current = recognition ?: return
+        recognition = RecognitionQuiz.answer(current, index)
+        emit()
+    }
+
+    fun advanceRecognition() {
+        val current = recognition ?: return
+        val question = current.queue.firstOrNull()
+        val rebuilt = question?.let { rebuildQuestion(it) } ?: return
+        val next = RecognitionQuiz.advance(current, rebuilt)
+        recognition = next
+        if (next.complete) {
+            val lessonId = recognitionLessonId
+            if (lessonId != null) {
+                progress = WritingProgress.withRecognitionLearned(progress, lessonId)
+                persist()
+            }
+        }
+        emit()
     }
 
     fun startDueReview() {
@@ -261,7 +320,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         emit()
     }
 
-    /** Replays the current prompt. Does not reveal the written form. */
+    /** Replays the current prompt. A recognition card speaks only when the sound is part of the question, or after the answer is shown. */
     fun replayPronunciation() {
         if (!speechAvailable) return
         val text = currentPronunciation() ?: return
@@ -285,6 +344,8 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         speaker.stop()
         lastSpokenKey = null
         session = null
+        recognition = null
+        recognitionLessonId = null
         showIntro = false
         screen = if (openStageId != null) WritingScreenKind.Lessons else WritingScreenKind.Path
         emit()
@@ -602,12 +663,47 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             beginner = beginner,
         )
         screen = WritingScreenKind.Practice
+        recognition = null
         showIntro = mode == PracticeMode.Lesson && progress.writingLessonsEnabled && !progress.introSeen
         emit()
     }
 
+    private fun beginRecognition(lesson: CourseLesson) {
+        transientJob?.cancel()
+        session = null
+        showIntro = false
+        val seen = recognizedItemIds()
+        val queue = RecognitionQuiz.questions(
+            lessonItems = lesson.items,
+            courseItems = course.allItems(),
+            seenIds = seen,
+            language = language,
+            random = recognitionRandom,
+        )
+        recognitionLessonId = lesson.id
+        recognitionLessonIds = lesson.items.map { it.id }.toSet()
+        recognitionSeenIds = seen
+        recognition = RecognitionQuiz.newRun(queue)
+        screen = WritingScreenKind.Recognize
+        emit()
+    }
+
+    private fun rebuildQuestion(question: RecognizeQuestion): RecognizeQuestion {
+        val item = course.allItems().firstOrNull { it.id == question.itemId } ?: return question
+        return RecognitionQuiz.question(
+            item = item,
+            prompt = question.prompt,
+            lessonIds = recognitionLessonIds,
+            courseItems = course.allItems(),
+            seenIds = recognitionSeenIds,
+            language = language,
+            random = recognitionRandom,
+        )
+    }
+
     private fun buildState(): WritingUiState {
-        val learned = learned()
+        val strokeLearned = learned()
+        val pathLearned = if (studyMode() == StudyMode.Recognize) recognized() else strokeLearned
         val premium = premiumNow()
         val stage = currentStage()
         val active = session
@@ -624,7 +720,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             debugUnlock = progress.debugUnlock,
             tolerance = WritingProgress.toleranceOf(progress),
             priceLabel = priceLabel,
-            dueCount = WritingProgress.dueItems(course, learned, progress.srs, now, premium).size,
+            dueCount = WritingProgress.dueItems(course, strokeLearned, progress.srs, now, premium).size,
             stages = course.stages.map { def ->
                 StageCard(
                     id = def.id,
@@ -632,7 +728,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                     blurb = def.blurb(language),
                     track = def.track,
                     premium = def.premium,
-                    learnedCount = def.lessons.count { it.id in learned },
+                    learnedCount = def.lessons.count { it.id in pathLearned },
                     lessonCount = def.lessons.size,
                     locked = !Entitlement.canOpen(def.premium, premium),
                 )
@@ -646,7 +742,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
                             id = lesson.id,
                             title = lesson.title(language),
                             preview = lesson.preview(),
-                            access = WritingProgress.access(def, index, learned, premium),
+                            access = WritingProgress.access(def, index, pathLearned, premium),
                         )
                     },
                 )
@@ -656,6 +752,38 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
             uiLanguage = language,
             beginnerMode = progress.beginnerMode,
             autoPronounce = progress.autoPronounce,
+            studyMode = studyMode(),
+            recognize = recognition?.let { recognizeToState(it) },
+        )
+    }
+
+    private fun recognizeToState(run: RecognizeRun): RecognizeUi {
+        if (run.complete || run.queue.isEmpty()) {
+            return RecognizeUi(
+                complete = true,
+                total = run.total.coerceAtLeast(1),
+                firstTryCorrect = run.firstTryCorrect,
+                fraction = 1f,
+                index = run.total,
+            )
+        }
+        val question = run.queue.first()
+        val remaining = run.queue.map { it.key }.distinct().size
+        val cleared = (run.total - remaining).coerceAtLeast(0)
+        return RecognizeUi(
+            kind = question.prompt,
+            promptText = question.promptText,
+            hint = question.hint,
+            showSpeaker = speechAvailable && (question.prompt == RecognizePrompt.ReadingToGlyph || run.awaiting),
+            options = question.options,
+            answerIndex = question.answerIndex,
+            pickedIndex = if (run.awaiting) run.picked else null,
+            index = (cleared + 1).coerceAtMost(run.total.coerceAtLeast(1)),
+            total = run.total.coerceAtLeast(1),
+            fraction = if (run.total == 0) 0f else cleared.toFloat() / run.total,
+            complete = false,
+            firstTryCorrect = run.firstTryCorrect,
+            retry = question.key in run.missed,
         )
     }
 
@@ -740,6 +868,18 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
 
     private fun learned(): Set<String> = progress.learnedLessonIds.toSet()
 
+    private fun recognized(): Set<String> = progress.recognizedLessonIds.toSet()
+
+    private fun recognizedItemIds(): Set<String> = course.stages
+        .flatMap { it.lessons }
+        .filter { it.id in recognized() }
+        .flatMap { it.items }
+        .map { it.id }
+        .toSet()
+
+    private fun studyMode(): StudyMode =
+        StudyMode.entries.firstOrNull { it.name == progress.studyMode } ?: StudyMode.Strokes
+
     private fun premiumNow(): Boolean = Entitlement.isPremium(
         playOwned = progress.playPremium,
         debugUnlock = progress.debugUnlock,
@@ -747,6 +887,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         purchaseCheckRequired = progress.purchaseCheckRequired,
         verifiedAt = progress.premiumVerifiedAt,
         now = System.currentTimeMillis(),
+        forcePremium = BuildConfig.FORCE_PREMIUM,
     )
 
     private fun persist() {
@@ -756,14 +897,29 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     private fun emit() {
         val state = buildState()
         _ui.value = state
-        considerAutoSpeak(state.practice)
+        considerAutoSpeak(state)
     }
 
     /**
      * Speaks the reading when a new prompt appears. Recall still shows only
      * romaji or the meaning; the written character stays off the canvas.
      */
-    private fun considerAutoSpeak(practice: PracticeState?) {
+    private fun considerAutoSpeak(state: WritingUiState) {
+        val card = state.recognize
+        if (card != null && !card.complete) {
+            if (!speechAvailable || !progress.autoPronounce) return
+            if (card.kind != RecognizePrompt.ReadingToGlyph || card.pickedIndex != null) return
+            val key = "recognize|${card.index}|${card.promptText}|${card.options.joinToString()}"
+            if (key == lastSpokenKey) return
+            val text = currentPronunciation() ?: return
+            lastSpokenKey = key
+            speaker.speak(text)
+            return
+        }
+        considerStrokeSpeech(state.practice)
+    }
+
+    private fun considerStrokeSpeech(practice: PracticeState?) {
         if (!speechAvailable || !progress.autoPronounce) return
         if (practice == null || practice.justCleared || practice.sessionComplete) return
         val key = "${practice.itemIndex}|${practice.phase}|${practice.headline}|${practice.subtitle}"
@@ -774,6 +930,13 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun currentPronunciation(): String? {
+        val card = recognition
+        if (card != null && !card.complete) {
+            val question = card.queue.firstOrNull() ?: return null
+            val reveal = question.prompt == RecognizePrompt.ReadingToGlyph || card.awaiting
+            if (!reveal) return null
+            return question.speakText.ifBlank { null }
+        }
         val current = session ?: return null
         if (current.complete || current.cleared || current.queue.isEmpty()) return null
         val item = current.items[current.queue.first().itemId] ?: return null
