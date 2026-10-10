@@ -76,6 +76,7 @@ data class PersistedProgress(
 /**
  * Whether paid stages open. The debug switch counts only when the build
  * itself is a debug build, so a release APK has no unlock backdoor.
+ * [forcePremium] is true only on the personal sideload; Play builds pass false.
  *
  * After the server has verified a purchase once, premium also requires a
  * recent [premiumVerifiedAt]. Offline, that timestamp stays valid for
@@ -93,7 +94,9 @@ object Entitlement {
         verifiedAt: Long = 0L,
         now: Long = 0L,
         graceMs: Long = PURCHASE_GRACE_MS,
+        forcePremium: Boolean = false,
     ): Boolean {
+        if (forcePremium) return true
         if (debugBuild && debugUnlock) return true
         if (!playOwned) return false
         if (!purchaseCheckRequired) return true

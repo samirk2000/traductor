@@ -747,6 +747,7 @@ class WritingViewModel(application: Application) : AndroidViewModel(application)
         purchaseCheckRequired = progress.purchaseCheckRequired,
         verifiedAt = progress.premiumVerifiedAt,
         now = System.currentTimeMillis(),
+        forcePremium = BuildConfig.FORCE_PREMIUM,
     )
 
     private fun persist() {

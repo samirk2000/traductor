@@ -229,6 +229,30 @@ class WritingCourseTest {
     }
 
     @Test
+    fun forcePremiumUnlocksWithoutAPurchase() {
+        assertTrue(
+            Entitlement.isPremium(
+                playOwned = false,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = true,
+                verifiedAt = 0L,
+                forcePremium = true,
+            ),
+        )
+        assertFalse(
+            Entitlement.isPremium(
+                playOwned = false,
+                debugUnlock = false,
+                debugBuild = false,
+                purchaseCheckRequired = true,
+                verifiedAt = 0L,
+                forcePremium = false,
+            ),
+        )
+    }
+
+    @Test
     fun serverVerifiedPremiumExpiresOutsideTheGraceWindow() {
         val now = 10 * Entitlement.PURCHASE_GRACE_MS
         assertFalse(
