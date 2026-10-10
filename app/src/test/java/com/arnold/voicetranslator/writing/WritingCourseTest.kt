@@ -1,5 +1,6 @@
 package com.arnold.voicetranslator.writing
 
+import com.arnold.voicetranslator.ui.localization.UiLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -500,6 +501,8 @@ class WritingCourseTest {
             premiumVerifiedAt = 123L,
             purchaseToken = "token",
             purchaseCheckRequired = true,
+            recognizedLessonIds = listOf("hira-basic-2"),
+            studyMode = StudyMode.Recognize.name,
         )
         val decoded = ProgressCodec.decode(ProgressCodec.encode(original))
         assertEquals(original, decoded)
@@ -508,7 +511,92 @@ class WritingCourseTest {
         assertEquals(0L, legacy.premiumVerifiedAt)
         assertEquals("", legacy.purchaseToken)
         assertEquals(StrokeTolerance.Relaxed, WritingProgress.toleranceOf(PersistedProgress()))
+        assertTrue(legacy.recognizedLessonIds.isEmpty())
+        assertEquals(StudyMode.Strokes.name, legacy.studyMode)
     }
+
+    @Test
+    fun recognitionProgressStaysSeparateFromStrokeLessons() {
+        val stroked = WritingProgress.withLessonLearned(PersistedProgress(), "hira-basic-1")
+        assertTrue(stroked.recognizedLessonIds.isEmpty())
+        val recognized = WritingProgress.withRecognitionLearned(stroked, "hira-basic-2")
+        assertEquals(listOf("hira-basic-1"), recognized.learnedLessonIds)
+        assertEquals(listOf("hira-basic-2"), recognized.recognizedLessonIds)
+        val again = WritingProgress.withRecognitionLearned(recognized, "hira-basic-2")
+        assertEquals(listOf("hira-basic-2"), again.recognizedLessonIds)
+    }
+
+    @Test
+    fun recognitionPrefersLookalikeKanaAndRequeuesAMiss() {
+        val shi = kana("shi", "シ")
+        val tsu = kana("tsu", "ツ")
+        val so = kana("so", "ソ")
+        val n = kana("n", "ン")
+        val a = kana("a", "ア")
+        val pool = listOf(shi, tsu, so, n, a)
+        val glyph = RecognitionQuiz.question(
+            item = shi,
+            prompt = RecognizePrompt.GlyphToReading,
+            lessonIds = setOf(shi.id),
+            courseItems = pool,
+            seenIds = emptySet(),
+            language = UiLanguage.ES,
+            random = Random(2),
+        )
+        assertEquals("shi", glyph.answerText)
+        assertEquals("シ", glyph.promptText)
+        assertEquals(4, glyph.options.toSet().size)
+        assertTrue(glyph.options.contains("tsu"))
+
+        val nu = kana("nu", "ぬ")
+        val me = kana("me", "め")
+        val hiraA = kana("hira-a", "あ")
+        val hiraI = kana("hira-i", "い")
+        val hiraU = kana("hira-u", "う")
+        val reading = RecognitionQuiz.question(
+            item = nu,
+            prompt = RecognizePrompt.ReadingToGlyph,
+            lessonIds = setOf(nu.id),
+            courseItems = listOf(nu, me, hiraA, hiraI, hiraU),
+            seenIds = emptySet(),
+            language = UiLanguage.ES,
+            random = Random(3),
+        )
+        assertEquals("ぬ", reading.answerText)
+        assertEquals("nu", reading.promptText)
+        assertTrue(reading.options.contains("め"))
+        assertEquals(1, reading.options.count { it == "ぬ" })
+
+        val question = glyph
+        var run = RecognitionQuiz.newRun(listOf(question))
+        val wrong = question.options.indices.first { it != question.answerIndex }
+        run = RecognitionQuiz.answer(run, wrong)
+        assertTrue(run.awaiting)
+        assertFalse(run.lastCorrect)
+        run = RecognitionQuiz.advance(run, question)
+        assertFalse(run.complete)
+        assertEquals(0, run.firstTryCorrect)
+        assertEquals(question.key, run.queue.last().key)
+        run = RecognitionQuiz.answer(run, question.answerIndex)
+        run = RecognitionQuiz.advance(run, question)
+        assertTrue(run.complete)
+        assertEquals(0, run.firstTryCorrect)
+
+        var first = RecognitionQuiz.newRun(listOf(question))
+        first = RecognitionQuiz.answer(first, question.answerIndex)
+        first = RecognitionQuiz.advance(first, question)
+        assertTrue(first.complete)
+        assertEquals(1, first.firstTryCorrect)
+    }
+
+    private fun kana(id: String, text: String) = CourseItem(
+        id = id,
+        glyphs = text.map { it.toString() },
+        reading = "",
+        meaningEs = text,
+        meaningEn = text,
+        reveal = "glyph",
+    )
 
     private fun wobble(points: List<Vec>, body: Float, ends: Float, seed: Int = 3): List<Vec> {
         val random = Random(seed)

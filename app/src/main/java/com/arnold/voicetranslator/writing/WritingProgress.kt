@@ -71,6 +71,10 @@ data class PersistedProgress(
      * does not grant premium.
      */
     val purchaseCheckRequired: Boolean = false,
+    /** Lessons finished in Reconocer. Independent of [learnedLessonIds]. */
+    val recognizedLessonIds: List<String> = emptyList(),
+    /** Last path the learner had open: [StudyMode.Strokes] or [StudyMode.Recognize]. */
+    val studyMode: String = StudyMode.Strokes.name,
 )
 
 /**
@@ -297,6 +301,11 @@ object WritingProgress {
     fun withLessonLearned(progress: PersistedProgress, lessonId: String): PersistedProgress {
         if (lessonId in progress.learnedLessonIds) return progress
         return progress.copy(learnedLessonIds = progress.learnedLessonIds + lessonId)
+    }
+
+    fun withRecognitionLearned(progress: PersistedProgress, lessonId: String): PersistedProgress {
+        if (lessonId in progress.recognizedLessonIds) return progress
+        return progress.copy(recognizedLessonIds = progress.recognizedLessonIds + lessonId)
     }
 
     private fun accessibleItems(course: Course, learned: Set<String>, premium: Boolean): List<CourseItem> {

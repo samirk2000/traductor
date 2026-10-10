@@ -60,6 +60,94 @@ class WritingScreenshotTest {
     }
 
     @Test
+    fun recognizeMode() {
+        snap("recognize-mode") {
+            WritingCourse(
+                state = WritingUiState(
+                    screen = WritingScreenKind.Path,
+                    studyMode = StudyMode.Recognize,
+                    premium = false,
+                    stages = listOf(
+                        stage("hira-basic", "Hiragana básico", "Las 46 sílabas, sin dakuten.", CourseTrack.Kana, premium = false, learned = 3, total = 10),
+                        stage("kata-basic", "Katakana básico", "Las mismas sílabas en katakana.", CourseTrack.Kana, premium = true, learned = 0, total = 10, locked = true),
+                        stage("hira-dakuten", "Hiragana con marca", "Dakuten y handakuten.", CourseTrack.Kana, premium = true, learned = 0, total = 5, locked = true),
+                    ),
+                ),
+                uiLanguage = UiLanguage.ES,
+                actions = noopActions(),
+            )
+        }
+    }
+
+    @Test
+    fun recognizeGlyph() {
+        snap("recognize-glyph") {
+            recognizeSnap(
+                kind = RecognizePrompt.GlyphToReading,
+                prompt = "シ",
+                options = listOf("shi", "tsu", "so", "n"),
+                answerIndex = 0,
+            )
+        }
+    }
+
+    @Test
+    fun recognizeReading() {
+        snap("recognize-reading") {
+            recognizeSnap(
+                kind = RecognizePrompt.ReadingToGlyph,
+                prompt = "nu",
+                options = listOf("ぬ", "め", "ね", "れ"),
+                answerIndex = 0,
+                showSpeaker = true,
+            )
+        }
+    }
+
+    @Test
+    fun recognizeFeedback() {
+        snap("recognize-feedback") {
+            recognizeSnap(
+                kind = RecognizePrompt.GlyphToReading,
+                prompt = "シ",
+                options = listOf("tsu", "shi", "so", "n"),
+                answerIndex = 1,
+                pickedIndex = 0,
+            )
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun recognizeSnap(
+        kind: RecognizePrompt,
+        prompt: String,
+        options: List<String>,
+        answerIndex: Int,
+        pickedIndex: Int? = null,
+        showSpeaker: Boolean = false,
+    ) {
+        WritingCourse(
+            state = WritingUiState(
+                screen = WritingScreenKind.Recognize,
+                studyMode = StudyMode.Recognize,
+                recognize = RecognizeUi(
+                    kind = kind,
+                    promptText = prompt,
+                    showSpeaker = showSpeaker,
+                    options = options,
+                    answerIndex = answerIndex,
+                    pickedIndex = pickedIndex,
+                    index = 2,
+                    total = 8,
+                    fraction = 0.125f,
+                ),
+            ),
+            uiLanguage = UiLanguage.ES,
+            actions = noopActions(),
+        )
+    }
+
+    @Test
     fun teach() {
         snap("teach") {
             practiceSnap(
@@ -254,5 +342,8 @@ class WritingScreenshotTest {
         onAutoPronounce = {},
         onClosePractice = {},
         onDismissNotice = {},
+        onStudyMode = {},
+        onRecognizeAnswer = {},
+        onRecognizeAdvance = {},
     )
 }
